@@ -7,7 +7,7 @@ export default function SettingsPage({ language, setLanguage, theme, setTheme, a
   const en = language === 'en';
   const [checking, setChecking] = useState(false);
   const [status, setStatus] = useState('');
-  const [version, setVersion] = useState(appVersion || '2.1.0');
+  const [version, setVersion] = useState(appVersion || '1.0.0');
   useEffect(() => { if (appVersion) setVersion(appVersion); }, [appVersion]);
 
   const check = async () => {
