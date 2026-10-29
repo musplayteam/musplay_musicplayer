@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- Optional favicon omitted: keep the packaged file:// build self-contained. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#100b1b" />
+    <meta name="description" content="MusPlay — твоя музыкальная библиотека и плеер для Windows." />
+    <title>MusPlay</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+  <style>
+    /* Тонкий невидимый скроллбар, появляется при наведении */
+    *::-webkit-scrollbar { width: 6px !important; height: 6px !important; }
+    *::-webkit-scrollbar-track { background: transparent !important; }
+    *::-webkit-scrollbar-thumb { background: rgba(255,255,255,0) !important; border-radius: 3px !important; transition: background 0.3s !important; }
+    *:hover::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2) !important; }
+    *:hover::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.4) !important; }
+    *::-webkit-scrollbar-corner { background: transparent !important; }
+  
+    /* ВАЖНО: разрешаем прокрутку! */
+    body { overflow: hidden !important; }
+  </style>
+</html>
