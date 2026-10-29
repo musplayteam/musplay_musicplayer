@@ -218,7 +218,7 @@ npm run dev
 Запуск настольного приложения:
 
 ```bash
-npm run electron:dev
+запусти файл в powershell start-powershell.ps1
 ```
 
 ### 4. Сборка для Windows
