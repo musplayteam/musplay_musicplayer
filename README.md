@@ -89,7 +89,7 @@ npm run dev
 To launch the desktop application in development mode:
 
 ```bash
-npm run electron:dev
+run file in powershell start-powershell.ps1
 ```
 
 ### 4. Build for Windows
