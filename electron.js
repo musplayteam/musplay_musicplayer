@@ -315,6 +315,11 @@ async function getMusixmatchLyrics(input = {}) {
   };
 }
 
+ipcMain.handle('lyrics:musixmatch:check', async () => {
+  try { return Boolean(await getMusixmatchToken()); }
+  catch { return false; }
+});
+
 ipcMain.handle('lyrics:musixmatch', async (_event, input) => getMusixmatchLyrics(input));
 
 

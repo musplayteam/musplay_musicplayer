@@ -10,6 +10,7 @@ export default function LyricsOverlay({ open, onClose, onOpenSearch, language = 
   const [error, setError] = useState('');
   const [retry, setRetry] = useState(0);
   const activeLineRef = useRef(null);
+  const forceRefreshRef = useRef(false);
   const { currentTrack, currentTime, isPlaying, togglePlay, nextTrack, prevTrack, toggleShuffle, toggleRepeat, repeatMode, isShuffle, favorites, toggleFavorite } = usePlayerStore();
 
   useEffect(() => {
@@ -23,7 +24,9 @@ export default function LyricsOverlay({ open, onClose, onOpenSearch, language = 
     setLyrics(null);
     setError('');
     setLoading(true);
-    findLyrics(currentTrack, controller.signal)
+    const forceRefresh = forceRefreshRef.current;
+    forceRefreshRef.current = false;
+    findLyrics(currentTrack, controller.signal, { forceRefresh })
       .then(result => {
         if (controller.signal.aborted) return;
         setLyrics(result);
@@ -34,7 +37,7 @@ export default function LyricsOverlay({ open, onClose, onOpenSearch, language = 
       })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [open, currentTrack?.id, retry]);
+  }, [open, currentTrack?.id, currentTrack?.title, currentTrack?.artist, currentTrack?.album, currentTrack?.duration, retry]);
 
   const activeLineIndex = useMemo(() => lyrics?.lines?.reduce((active, line, index) => line.time <= currentTime ? index : active, -1) ?? -1, [lyrics, currentTime]);
 
@@ -53,7 +56,7 @@ export default function LyricsOverlay({ open, onClose, onOpenSearch, language = 
         <header className="shrink-0 h-14 flex items-center justify-between px-6 md:px-10 border-b border-white/[0.07]">
           <div className="flex items-center gap-3"><FileMusic size={19} className="text-pink-300"/><span className="text-sm font-semibold tracking-wide">{t('lyricsOverlayTitle', language)}</span><span className="hidden sm:inline text-xs text-white/35">{t('syncedToPlayback', language)}</span></div>
           <div className="flex items-center gap-2">
-            <button onClick={() => setRetry(value => value + 1)} title={t('refreshLyrics', language)} className="rounded-full p-2 text-white/55 hover:bg-white/10 hover:text-white transition"><RefreshCw size={17}/></button>
+            <button onClick={() => { forceRefreshRef.current = true; setRetry(value => value + 1); }} title={t('refreshLyrics', language)} className="rounded-full p-2 text-white/55 hover:bg-white/10 hover:text-white transition"><RefreshCw size={17}/></button>
             <button onClick={onClose} title={t('closeLyrics', language)} className="rounded-full p-2 text-white/65 hover:bg-white/10 hover:text-white transition"><X size={19}/></button>
           </div>
         </header>
