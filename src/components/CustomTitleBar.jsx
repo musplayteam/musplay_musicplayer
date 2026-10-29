@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Minus, Square, X, Music } from 'lucide-react';
+import { t } from '../i18n';
 
-export default function CustomTitleBar() {
+export default function CustomTitleBar({ language = 'ru' }) {
   const [isMaximized, setIsMaximized] = useState(false);
 
   useEffect(() => {
@@ -37,7 +38,7 @@ export default function CustomTitleBar() {
         <button
           onClick={() => window.electronAPI?.minimize()}
           className="w-12 h-12 flex items-center justify-center text-gray-400 hover:text-white hover:bg-white/5 transition"
-          title="Свернуть"
+          title={t('minimize', language)}
         >
           <Minus size={14} strokeWidth={2} />
         </button>
@@ -48,7 +49,7 @@ export default function CustomTitleBar() {
             setIsMaximized(!isMaximized);
           }}
           className="w-12 h-12 flex items-center justify-center text-gray-400 hover:text-white hover:bg-white/5 transition"
-          title={isMaximized ? "Восстановить" : "Развернуть"}
+          title={isMaximized ? t('restore', language) : t('maximize', language)}
         >
           <Square size={12} strokeWidth={2} />
         </button>
@@ -56,7 +57,7 @@ export default function CustomTitleBar() {
         <button
           onClick={() => window.electronAPI?.close()}
           className="w-12 h-12 flex items-center justify-center text-gray-400 hover:text-white hover:bg-red-500 transition"
-          title="Закрыть"
+          title={t('close', language)}
         >
           <X size={14} strokeWidth={2} />
         </button>

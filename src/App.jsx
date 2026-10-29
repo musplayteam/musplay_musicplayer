@@ -12,9 +12,31 @@ export default function App() {
   const [currentView, setCurrentView] = useState('home');
   const [selectedPlaylistId, setSelectedPlaylistId] = useState(null);
   const [showLyricsOverlay, setShowLyricsOverlay] = useState(false);
+  const [language, setLanguageState] = useState(() => localStorage.getItem('musplay-language') || 'ru');
+  const [theme, setThemeState] = useState(() => localStorage.getItem('musplay-theme') || 'purple');
+  const [appVersion, setAppVersion] = useState('2.1.0');
+  const [updateState, setUpdateState] = useState(null);
+  const [showUpdateBanner, setShowUpdateBanner] = useState(false);
+
+  const setLanguage = (value) => { localStorage.setItem('musplay-language', value); setLanguageState(value); };
+  const setTheme = (value) => { localStorage.setItem('musplay-theme', value); setThemeState(value); };
+  const checkUpdates = async () => {
+    try {
+      const result = await window.electronAPI?.checkUpdates?.();
+      if (result) { setUpdateState(result); setShowUpdateBanner(Boolean(result.updateAvailable)); return result; }
+      return null;
+    } catch { return null; }
+  };
+
+  useEffect(() => {
+    document.documentElement.lang = language;
+  }, [language]);
 
   useEffect(() => {
     initialize();
+    window.electronAPI?.getAppVersion?.().then(setAppVersion).catch(() => {});
+    const timer = setTimeout(() => { checkUpdates(); }, 1800);
+    return () => clearTimeout(timer);
   }, [initialize]);
 
   // Electron/Chromium can latch a wheel gesture to the first scroll container
@@ -89,30 +111,49 @@ export default function App() {
     };
   }, []);
 
+  const backgroundClass = theme === 'black' ? 'bg-gradient-to-br from-black via-[#08060b] to-black' : theme === 'dark' ? 'bg-gradient-to-br from-[#111116] via-[#1c1b24] to-[#09090d]' : 'bg-gradient-to-br from-[#1a0b2e] via-[#2d1b4e] to-[#0f0518]';
+  const openReleases = () => window.electronAPI?.openExternal?.(updateState?.releasesUrl || 'https://github.com/musplayteam/musplay_musicplayer/releases');
+
   return (
-    <div className="h-screen min-h-0 w-full bg-gradient-to-br from-[#1a0b2e] via-[#2d1b4e] to-[#0f0518] text-white flex flex-col overflow-hidden">
+    <div className={`h-screen min-h-0 w-full ${backgroundClass} text-white flex flex-col overflow-hidden transition-colors duration-300`}>
       {/* Заголовок приклеен к верху окна */}
-      <CustomTitleBar />
+      <CustomTitleBar language={language} />
+      {showUpdateBanner && updateState?.updateAvailable && (
+        <div className="fixed top-12 left-1/2 -translate-x-1/2 z-40 mt-2 max-w-[calc(100%-2rem)] rounded-xl border border-purple-300/20 bg-[#241333]/95 shadow-xl shadow-black/30 backdrop-blur px-4 py-2.5 flex items-center gap-3" role="status">
+          <span className="w-2 h-2 rounded-full bg-pink-400 shrink-0 animate-pulse" />
+          <span className="text-xs sm:text-sm whitespace-nowrap">{language === 'en' ? `MusPlay ${updateState.latestVersion} is available` : `Доступно обновление MusPlay ${updateState.latestVersion}`}</span>
+          <button onClick={openReleases} className="text-xs sm:text-sm font-semibold text-pink-300 hover:text-white whitespace-nowrap">{language === 'en' ? 'View update' : 'Скачать'} ↗</button>
+          <button onClick={() => setShowUpdateBanner(false)} className="text-gray-400 hover:text-white text-lg leading-none ml-1" aria-label={language === 'en' ? 'Dismiss' : 'Закрыть'}>×</button>
+        </div>
+      )}
       
-      {/* pt-12 = отступ сверху на высоту заголовка (48px) */}
-      <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden pt-12 pb-20">
+      {/* Reserve space for the custom title bar and optional update banner. */}
+      <div className={`flex flex-1 min-h-0 min-w-0 overflow-hidden ${showUpdateBanner ? 'pt-[88px]' : 'pt-12'} pb-20`}>
         <Sidebar 
           currentView={currentView} 
           setCurrentView={setCurrentView} 
           setSelectedPlaylistId={setSelectedPlaylistId}
           selectedPlaylistId={selectedPlaylistId}
+          language={language}
         />
         <MainContent 
           currentView={currentView} 
           selectedPlaylistId={selectedPlaylistId} 
           setCurrentView={setCurrentView}
+          language={language}
+          setLanguage={setLanguage}
+          theme={theme}
+          setTheme={setTheme}
+          appVersion={appVersion}
+          onCheckUpdates={checkUpdates}
+          updateState={updateState}
         />
-        <RightPanel />
+        <RightPanel language={language} />
       </div>
       
       {/* Плеер приклеен к низу окна */}
-      <LyricsOverlay open={showLyricsOverlay} onClose={() => setShowLyricsOverlay(false)} onOpenSearch={() => { setShowLyricsOverlay(false); setCurrentView('lyrics'); }} />
-      <BottomPlayer showLyrics={showLyricsOverlay} onToggleLyrics={() => setShowLyricsOverlay(value => !value)} />
+      <LyricsOverlay language={language} open={showLyricsOverlay} onClose={() => setShowLyricsOverlay(false)} onOpenSearch={() => { setShowLyricsOverlay(false); setCurrentView('lyrics'); }} />
+      <BottomPlayer language={language} showLyrics={showLyricsOverlay} onToggleLyrics={() => setShowLyricsOverlay(value => !value)} />
     </div>
   );
 }

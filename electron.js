@@ -2,6 +2,21 @@ const { app, BrowserWindow, Menu, ipcMain, shell } = require('electron');
 const path = require('path');
 const fs = require('fs/promises');
 
+// Keep only one MusPlay process per Windows user. Chromium cache and IndexedDB
+// are shared by the app's profile; parallel instances can lock the same files.
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    const existingWindow = BrowserWindow.getAllWindows()[0];
+    if (!existingWindow) return;
+    if (existingWindow.isMinimized()) existingWindow.restore();
+    existingWindow.show();
+    existingWindow.focus();
+  });
+}
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1400,
@@ -392,7 +407,43 @@ ipcMain.on('maximize', () => {
 });
 ipcMain.on('close', () => BrowserWindow.getFocusedWindow()?.close());
 ipcMain.handle('isMaximized', () => BrowserWindow.getFocusedWindow()?.isMaximized() || false);
+ipcMain.handle('app:getVersion', () => app.getVersion());
+ipcMain.handle('app:openExternal', async (_event, url) => {
+  try {
+    const parsed = new URL(url);
+    if (!['https:', 'http:'].includes(parsed.protocol)) return false;
+    await shell.openExternal(parsed.href);
+    return true;
+  } catch { return false; }
+});
+ipcMain.handle('app:checkUpdates', async () => {
+  const currentVersion = app.getVersion();
+  const releasesUrl = 'https://github.com/musplayteam/musplay_musicplayer/releases';
+  try {
+    const response = await fetch('https://api.github.com/repos/musplayteam/musplay_musicplayer/releases/latest', {
+      headers: { 'Accept': 'application/vnd.github+json', 'User-Agent': 'MusPlay-Update-Checker' },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!response.ok) return { currentVersion, updateAvailable: false, releasesUrl, error: `GitHub API: ${response.status}` };
+    const release = await response.json();
+    const normalize = (value) => String(value || '').trim().replace(/^v/i, '').split(/[+-]/)[0].split('.').map(part => Number.parseInt(part, 10) || 0);
+    const current = normalize(currentVersion);
+    const latest = normalize(release.tag_name || release.name);
+    let comparison = 0;
+    for (let i = 0; i < Math.max(current.length, latest.length); i++) {
+      if ((latest[i] || 0) > (current[i] || 0)) { comparison = 1; break; }
+      if ((latest[i] || 0) < (current[i] || 0)) { comparison = -1; break; }
+    }
+    return { currentVersion, latestVersion: release.tag_name || release.name || '', updateAvailable: comparison > 0, releasesUrl: release.html_url || releasesUrl, releaseName: release.name || '', publishedAt: release.published_at || null };
+  } catch (error) {
+    return { currentVersion, updateAvailable: false, releasesUrl, error: error?.message || 'Network error' };
+  }
+});
 
-app.whenReady().then(createWindow);
+if (hasSingleInstanceLock) {
+  app.whenReady().then(createWindow);
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
+}
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
-app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });

@@ -1,8 +1,9 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { Play, Pause, Trash2, Upload, PlusCircle } from 'lucide-react';
 import usePlayerStore from '../store/playerStore';
+import { t } from '../i18n';
 
-export default function RightPanel() {
+export default function RightPanel({ language = 'ru' }) {
   const fileInputRef = useRef(null);
   const [openMenuId, setOpenMenuId] = useState(null);
   const menuRef = useRef(null); // Ссылка на выпадающее меню
@@ -42,7 +43,7 @@ export default function RightPanel() {
   return (
     <aside data-wheel-region="true" className="w-80 min-h-0 h-full shrink-0 p-6 flex flex-col gap-8 border-l border-white/5 overflow-x-hidden overflow-y-auto overscroll-contain">
       <div>
-        <h3 className="text-sm font-semibold mb-4">Сейчас играет</h3>
+        <h3 className="text-sm font-semibold mb-4">{t('nowPlaying', language)}</h3>
         {currentTrack ? (
           <div className="bg-gradient-to-br from-purple-600/40 to-pink-600/40 backdrop-blur-md rounded-2xl p-4 border border-white/10">
             <div className="flex items-end justify-center gap-1 h-16 mb-3">
@@ -57,29 +58,29 @@ export default function RightPanel() {
                 />
               ))}
             </div>
-            <p className="font-bold">{currentTrack.title}</p>
-            <p className="text-xs text-gray-400">{currentTrack.artist}</p>
+            <p className="font-bold">{currentTrack.title || t('noTitle', language)}</p>
+            <p className="text-xs text-gray-400">{currentTrack.artist || t('unknownArtist', language)}</p>
           </div>
         ) : (
           <div className="bg-white/5 rounded-2xl p-4 border border-white/10 text-center">
-            <p className="text-sm text-gray-400">Ничего не играет</p>
+            <p className="text-sm text-gray-400">{t('nothingPlaying', language)}</p>
           </div>
         )}
       </div>
 
       <div className="flex-1">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-semibold">Очередь ({queue.length})</h3>
+          <h3 className="text-sm font-semibold">{t('queue', language)} ({queue.length})</h3>
           <button onClick={() => fileInputRef.current?.click()} className="text-xs text-purple-400 hover:text-purple-300 transition flex items-center gap-1">
             <Upload size={12} />
-            Добавить
+            {t('add', language)}
           </button>
           <input ref={fileInputRef} type="file" accept="audio/*" multiple onChange={handleFileUpload} className="hidden" />
         </div>
 
         <div className="flex flex-col gap-2 relative">
           {queue.length === 0 ? (
-            <p className="text-sm text-gray-500 text-center py-8">Очередь пуста</p>
+            <p className="text-sm text-gray-500 text-center py-8">{t('emptyQueue', language)}</p>
           ) : (
             queue.map((track) => (
               <div
@@ -93,8 +94,8 @@ export default function RightPanel() {
                   {currentTrack?.id === track.id && isPlaying ? <Pause size={14} fill="white" /> : <Play size={14} fill="white" className="ml-0.5" />}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{track.title}</p>
-                  <p className="text-xs text-gray-400 truncate">{track.artist}</p>
+                  <p className="text-sm font-medium truncate">{track.title || t('noTitle', language)}</p>
+                  <p className="text-xs text-gray-400 truncate">{track.artist || t('unknownArtist', language)}</p>
                 </div>
                 
                 <div className="flex items-center gap-1 relative" ref={openMenuId === track.id ? menuRef : null}>
@@ -104,7 +105,7 @@ export default function RightPanel() {
                       setOpenMenuId(openMenuId === track.id ? null : track.id);
                     }}
                     className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-purple-400 transition p-1"
-                    title="Добавить в плейлист"
+                    title={t('addToPlaylist', language)}
                   >
                     <PlusCircle size={16} />
                   </button>
@@ -120,7 +121,7 @@ export default function RightPanel() {
                   {openMenuId === track.id && (
                     <div className="absolute right-0 top-full mt-1 w-48 bg-[#1a0b2e] border border-white/10 rounded-lg shadow-2xl z-50 overflow-hidden">
                       {playlists.length === 0 ? (
-                        <p className="p-3 text-xs text-gray-500 text-center">Сначала создай плейлист в меню слева</p>
+                        <p className="p-3 text-xs text-gray-500 text-center">{t('createPlaylistInSidebar', language)}</p>
                       ) : (
                         playlists.map(pl => (
                           <button

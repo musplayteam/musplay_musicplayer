@@ -1,8 +1,9 @@
 import React, { useRef, useEffect } from 'react';
 import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Repeat, Repeat1, Shuffle, Upload, Heart, FileMusic } from 'lucide-react';
 import usePlayerStore from '../store/playerStore';
+import { t } from '../i18n';
 
-export default function BottomPlayer({ showLyrics = false, onToggleLyrics = () => {} }) {
+export default function BottomPlayer({ showLyrics = false, onToggleLyrics = () => {}, language = 'ru' }) {
   const audioRef = useRef(null);
   const progressRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -78,13 +79,13 @@ export default function BottomPlayer({ showLyrics = false, onToggleLyrics = () =
   if (!currentTrack) {
     return (
       <div className="fixed bottom-0 left-0 right-0 h-20 bg-[#0f0518]/90 backdrop-blur-xl border-t border-white/10 px-6 flex items-center justify-center gap-4 z-50">
-        <p className="text-gray-400 text-sm">Очередь пуста. Добавь музыку!</p>
+        <p className="text-gray-400 text-sm">{t('queueEmptyPrompt', language)}</p>
         <button 
           onClick={() => fileInputRef.current?.click()} 
           className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg transition text-sm"
         >
           <Upload size={16} />
-          Загрузить музыку
+          {t('uploadMusic', language)}
         </button>
         <input 
           ref={fileInputRef} 
@@ -120,35 +121,35 @@ export default function BottomPlayer({ showLyrics = false, onToggleLyrics = () =
       <div className="flex items-center gap-3 w-1/4">
         <div className="w-12 h-12 bg-gradient-to-br from-pink-500 to-purple-600 rounded-lg flex items-center justify-center overflow-hidden">
           {currentTrack.cover ? (
-            <img src={currentTrack.cover} alt="cover" className="w-full h-full object-cover" />
+            <img src={currentTrack.cover} alt={t('coverAlt', language)} className="w-full h-full object-cover" />
           ) : (
             <span className="text-2xl">🎵</span>
           )}
         </div>
         <div className="overflow-hidden min-w-0">
-          <p className="font-semibold text-sm truncate">{currentTrack.title}</p>
-          <p className="text-xs text-gray-400 truncate">{currentTrack.artist}</p>
+          <p className="font-semibold text-sm truncate">{currentTrack.title || t('noTitle', language)}</p>
+          <p className="text-xs text-gray-400 truncate">{currentTrack.artist || t('unknownArtist', language)}</p>
         </div>
-        <button onClick={() => toggleFavorite(currentTrack)} className={`p-2 transition ${favorites.some(track => track.id === currentTrack.id) ? 'text-pink-400' : 'text-gray-500 hover:text-pink-300'}`} title="Мне нравится">
+        <button onClick={() => toggleFavorite(currentTrack)} className={`p-2 transition ${favorites.some(track => track.id === currentTrack.id) ? 'text-pink-400' : 'text-gray-500 hover:text-pink-300'}`} title={t('likeTrack', language)}>
           <Heart size={17} fill={favorites.some(track => track.id === currentTrack.id) ? 'currentColor' : 'none'} />
         </button>
       </div>
 
       <div className="flex flex-col items-center gap-2 w-1/2">
         <div className="flex items-center gap-4">
-          <button onClick={toggleShuffle} className={`transition ${isShuffle ? 'text-pink-500' : 'text-gray-400 hover:text-white'}`}>
+          <button onClick={toggleShuffle} title={t('shuffle', language)} aria-label={t('shuffle', language)} className={`transition ${isShuffle ? 'text-pink-500' : 'text-gray-400 hover:text-white'}`}>
             <Shuffle size={16} />
           </button>
-          <button onClick={prevTrack} className="text-gray-400 hover:text-white transition">
+          <button onClick={prevTrack} title={t('previousTrack', language)} aria-label={t('previousTrack', language)} className="text-gray-400 hover:text-white transition">
             <SkipBack size={18} fill="currentColor" />
           </button>
-          <button onClick={togglePlay} className="w-10 h-10 bg-pink-500 rounded-full flex items-center justify-center hover:scale-110 transition">
+          <button onClick={togglePlay} title={isPlaying ? t('pause', language) : t('playAction', language)} aria-label={isPlaying ? t('pause', language) : t('playAction', language)} className="w-10 h-10 bg-pink-500 rounded-full flex items-center justify-center hover:scale-110 transition">
             {isPlaying ? <Pause size={18} fill="white" /> : <Play size={18} fill="white" className="ml-0.5" />}
           </button>
-          <button onClick={nextTrack} className="text-gray-400 hover:text-white transition">
+          <button onClick={nextTrack} title={t('nextTrack', language)} aria-label={t('nextTrack', language)} className="text-gray-400 hover:text-white transition">
             <SkipForward size={18} fill="currentColor" />
           </button>
-          <button onClick={toggleRepeat} className={`transition ${repeatMode !== 'none' ? 'text-pink-500' : 'text-gray-400 hover:text-white'}`}>
+          <button onClick={toggleRepeat} title={t('repeat', language)} aria-label={t('repeat', language)} className={`transition ${repeatMode !== 'none' ? 'text-pink-500' : 'text-gray-400 hover:text-white'}`}>
             {repeatMode === 'one' ? <Repeat1 size={16} /> : <Repeat size={16} />}
           </button>
         </div>
@@ -172,18 +173,19 @@ export default function BottomPlayer({ showLyrics = false, onToggleLyrics = () =
       </div>
 
       <div className="flex items-center gap-3 w-1/4 justify-end">
-        <button onClick={onToggleLyrics} className={`p-2 rounded-full transition ${showLyrics ? 'text-pink-300 bg-white/10' : 'text-gray-400 hover:text-white'}`} title="Открыть текст песни" aria-label="Открыть текст песни">
+        <button onClick={onToggleLyrics} className={`p-2 rounded-full transition ${showLyrics ? 'text-pink-300 bg-white/10' : 'text-gray-400 hover:text-white'}`} title={t('openLyrics', language)} aria-label={t('openLyrics', language)}>
           <FileMusic size={18} />
         </button>
-        <button onClick={() => fileInputRef.current?.click()} className="text-gray-400 hover:text-white transition" title="Загрузить музыку">
+        <button onClick={() => fileInputRef.current?.click()} className="text-gray-400 hover:text-white transition" title={t('uploadMusic', language)}>
           <Upload size={16} />
         </button>
-        <button onClick={toggleMute} className="text-gray-400 hover:text-white transition">
+        <button onClick={toggleMute} title={isMuted || volume === 0 ? t('unmuteVolume', language) : t('muteVolume', language)} aria-label={isMuted || volume === 0 ? t('unmuteVolume', language) : t('muteVolume', language)} className="text-gray-400 hover:text-white transition">
           {isMuted || volume === 0 ? <VolumeX size={16} /> : <Volume2 size={16} />}
         </button>
         <div className="w-24 h-1 bg-white/10 rounded-full overflow-hidden cursor-pointer relative group">
           <input 
             type="range" 
+            aria-label={t('volume', language)}
             min="0" 
             max="1" 
             step="0.01" 

@@ -1,0 +1,61 @@
+const translations = {
+  en: {
+    playlistNotFound: 'Playlist not found.', goHome: 'Go home', back: 'Back', localPlaylist: 'Local playlist', tracksCount: '{count} tracks', trackCountOne: '1 track', play: 'Play', deletePlaylistConfirm: 'Delete this playlist?',
+    lyricsSearchTitle: 'Search song lyrics', lyricsSearchDesc: 'Find synced lyrics and save them for offline use.', findSyncedLyrics: 'Find synced lyrics', songTitle: 'Song title', artistOptional: 'Artist (optional)', search: 'Search', searchingEllipsis: 'Searching…', lyricsSaveHint: 'Click a result to save it to this local folder:', lyricsResults: 'Search results', lyricsClickSaves: 'Clicking a result saves the lyrics instead of opening a preview.', checkingSources: 'Checking available sources', tryOtherSearch: 'Try a different spelling or add the artist.', saveSyncedLyrics: 'Save synced lyrics', save: 'Save', discoverAnySong: 'Find lyrics for any song', discoverAnySongDesc: 'Enter the title and, if needed, the artist. This also works for songs that are not in your local collection.',
+    noSyncedLyricsSearch: 'No synced lyrics found. Try refining the title or artist.', lyricsSearchFailed: 'Could not search for lyrics. Check your internet connection.', lyricsLoadFailed: 'Could not load the song lyrics.', lyricsNotFoundGeneric: 'Synced lyrics were not found.', lyricsSaveDesktopOnly: 'Saving is available in the installed MusPlay app only.', savingLyrics: 'Saving lyrics…', lyricsSavedOffline: 'Lyrics saved for offline listening: {path}', lyricsSaveFailed: 'Could not save the lyrics.', unknownArtist: 'Unknown artist', noAlbum: 'No album', syncedCatalog: 'Synced lyrics catalog', timecodedLyrics: 'timestamped lyrics',
+    homeEyebrow: 'MUSPLAY · LOCAL MUSIC PLAYER', homeTitle: 'Your music. Nothing extra.', homeDesc: 'Your collection, playlists, and synced lyrics — all in one place.', myMusic: 'My music', tracks: '{count} tracks', playlists: 'Playlists', collections: '{count} collections', searchLyrics: 'Search lyrics', findAndSaveLyrics: 'Find and save lyrics', recentlyAdded: 'Recently added', entireLibrary: 'All music →', addLocalFilesEmpty: 'Add local audio files using the “Add music” button in the queue.',
+    myPlaylists: 'My playlists', playlistsDesc: 'Create your own collections from local tracks using the sidebar.', createFirstPlaylist: 'Create your first playlist using the + button next to “Playlists”.',
+    likedSongs: 'Liked songs', history: 'History', artists: 'Artists', albums: 'Albums', searchLibrary: 'Search library', libraryTracksSummary: '{count} songs · searching your local collection', searchLibraryPlaceholder: 'Search tracks, artists, albums, or file names', noGroupingData: 'There is no data to group yet. Add music with artist and album tags.', playAll: 'Play all', noLocalSearchResults: 'Nothing found in your local library.', addMusicViaUpload: 'Add music files using the upload button.', playTrack: 'Play track', noTitle: 'Untitled', tracksShort: '{count} tracks', likeTrack: 'Like', removeFromPlaylist: 'Remove from playlist',
+    nowPlaying: 'Now playing', nothingPlaying: 'Nothing is playing', queue: 'Queue', add: 'Add', emptyQueue: 'Queue is empty', createPlaylistInSidebar: 'Create a playlist in the sidebar first.', addToPlaylist: 'Add to playlist',
+    queueEmptyPrompt: 'Queue is empty. Add some music!', uploadMusic: 'Add music', openLyrics: 'Open song lyrics', volume: 'Volume', muteVolume: 'Mute', unmuteVolume: 'Unmute', minimize: 'Minimize', restore: 'Restore', maximize: 'Maximize', close: 'Close',
+    lyricsOverlayTitle: 'SONG LYRICS', syncedToPlayback: 'Synced with playback', refreshLyrics: 'Refresh lyrics', closeLyrics: 'Close lyrics', playTrackToSeeLyrics: 'Play a track to see its lyrics', coverAlt: 'Album cover', shuffle: 'Shuffle', previousTrack: 'Previous track', pause: 'Pause', playAction: 'Play', nextTrack: 'Next track', repeat: 'Repeat', removeFromLiked: 'Remove from liked songs', inLikedSongs: 'Liked', currentlyPlaying: 'NOW PLAYING', noTitleFallback: 'Untitled', lyricsSourceLoading: 'Searching for synced lyrics…', songLyrics: 'Song lyrics', openSource: 'Open source', localCopy: 'Local copy:', searchingLyricsInMusixmatch: 'Searching for synced lyrics on Musixmatch…', retrySearch: 'Try again', noLyricsForSong: 'Lyrics for this song have not been found yet.', searchLyricsInstruction: 'You can search by title and artist in the “Search lyrics” section.', goToLyricsSearch: 'Go to lyrics search',
+    serviceNeedsMetadata: 'A track title and artist are required in the audio file metadata to search for synced lyrics.', errorNeedLrcMetadata: 'A title, artist, and synced LRC lyrics are required.', lyricsSourcesUnavailable: 'All automatic synced-lyrics sources are currently unavailable. Check your internet connection and try again.', noLyricsFoundSources: 'Synced lyrics were not found in the automatic sources (Musixmatch, LRC Mux, and Unison).',
+  },
+  ru: {
+    playlistNotFound: 'Плейлист не найден.', goHome: 'На главную', back: 'Назад', localPlaylist: 'Локальный плейлист', tracksCount: '{count} треков', trackCountOne: '1 трек', play: 'Слушать', deletePlaylistConfirm: 'Удалить плейлист?',
+    lyricsSearchTitle: 'Поиск текста песни', lyricsSearchDesc: 'Найди синхронизированный текст и сохрани его для использования без интернета.', findSyncedLyrics: 'Найти синхронизированный текст', songTitle: 'Название песни', artistOptional: 'Исполнитель (необязательно)', search: 'Найти', searchingEllipsis: 'Ищем…', lyricsSaveHint: 'Нажми на найденный результат, чтобы сохранить его в локальную папку:', lyricsResults: 'Результаты поиска', lyricsClickSaves: 'Нажатие на результат сохранит текст, а не откроет его просмотр.', checkingSources: 'Проверяем доступные источники', tryOtherSearch: 'Попробуй другое написание или укажи исполнителя.', saveSyncedLyrics: 'Сохранить синхронизированный текст', save: 'Сохранить', discoverAnySong: 'Найди текст для любой песни', discoverAnySongDesc: 'Введи название и, при необходимости, исполнителя. Это работает даже для песен, которых нет в твоей локальной коллекции.',
+    noSyncedLyricsSearch: 'Синхронизированный текст не найден. Попробуй уточнить название или исполнителя.', lyricsSearchFailed: 'Не удалось выполнить поиск. Проверь подключение к интернету.', lyricsLoadFailed: 'Не удалось загрузить текст песни.', lyricsNotFoundGeneric: 'Синхронизированный текст не найден.', lyricsSaveDesktopOnly: 'Сохранение доступно только в установленном приложении MusPlay.', savingLyrics: 'Сохраняю текст…', lyricsSavedOffline: 'Текст сохранён для офлайн-прослушивания: {path}', lyricsSaveFailed: 'Не удалось сохранить текст.', unknownArtist: 'Неизвестный исполнитель', noAlbum: 'Без альбома', syncedCatalog: 'Синхронизированный каталог', timecodedLyrics: 'текст с таймкодами',
+    homeEyebrow: 'MUSPLAY · ЛОКАЛЬНЫЙ ПЛЕЕР', homeTitle: 'Твоя музыка. Без лишнего.', homeDesc: 'Вся коллекция, плейлисты и синхронизированный текст — в одном месте.', myMusic: 'Моя музыка', tracks: '{count} треков', playlists: 'Плейлисты', collections: '{count} подборок', searchLyrics: 'Поиск текста', findAndSaveLyrics: 'Найти и сохранить текст', recentlyAdded: 'Недавно добавленные', entireLibrary: 'Вся библиотека →', addLocalFilesEmpty: 'Добавь локальные аудиофайлы кнопкой «Добавить музыку» в очереди.',
+    myPlaylists: 'Мои плейлисты', playlistsDesc: 'Создавай собственные подборки из локальных треков через боковую панель.', createFirstPlaylist: 'Создай первый плейлист кнопкой + рядом с заголовком «Плейлисты».',
+    likedSongs: 'Мне нравится', history: 'История', artists: 'Исполнители', albums: 'Альбомы', searchLibrary: 'Поиск по библиотеке', libraryTracksSummary: '{count} композиций · поиск работает по локальной коллекции', searchLibraryPlaceholder: 'Найти трек, исполнителя, альбом или имя файла', noGroupingData: 'Пока нет данных для группировки. Добавь музыку с тегами исполнителя и альбома.', playAll: 'Слушать всё', noLocalSearchResults: 'Ничего не найдено в локальной библиотеке.', addMusicViaUpload: 'Добавь музыкальные файлы через кнопку загрузки.', playTrack: 'Воспроизвести', noTitle: 'Без названия', tracksShort: '{count} тр.', likeTrack: 'Мне нравится', removeFromPlaylist: 'Убрать из плейлиста',
+    nowPlaying: 'Сейчас играет', nothingPlaying: 'Ничего не играет', queue: 'Очередь', add: 'Добавить', emptyQueue: 'Очередь пуста', createPlaylistInSidebar: 'Сначала создай плейлист в меню слева.', addToPlaylist: 'Добавить в плейлист',
+    queueEmptyPrompt: 'Очередь пуста. Добавь музыку!', uploadMusic: 'Загрузить музыку', openLyrics: 'Открыть текст песни', volume: 'Громкость', muteVolume: 'Выключить звук', unmuteVolume: 'Включить звук', minimize: 'Свернуть', restore: 'Восстановить', maximize: 'Развернуть', close: 'Закрыть',
+    lyricsOverlayTitle: 'ТЕКСТ ПЕСНИ', syncedToPlayback: 'Синхронизировано с воспроизведением', refreshLyrics: 'Обновить текст', closeLyrics: 'Закрыть текст', playTrackToSeeLyrics: 'Включи трек, чтобы увидеть текст', coverAlt: 'Обложка альбома', shuffle: 'Перемешать', previousTrack: 'Предыдущий трек', pause: 'Пауза', playAction: 'Воспроизвести', nextTrack: 'Следующий трек', repeat: 'Повтор', removeFromLiked: 'Убрать из избранного', inLikedSongs: 'В избранном', currentlyPlaying: 'СЕЙЧАС ИГРАЕТ', noTitleFallback: 'Без названия', lyricsSourceLoading: 'Ищем синхронизированный текст…', songLyrics: 'Текст песни', openSource: 'Открыть источник', localCopy: 'Локальная копия:', searchingLyricsInMusixmatch: 'Ищем синхронизированный текст в Musixmatch…', retrySearch: 'Повторить поиск', noLyricsForSong: 'Текст для этой песни пока не найден', searchLyricsInstruction: 'Можно поискать текст по названию и исполнителю в разделе «Поиск текста».', goToLyricsSearch: 'Перейти к поиску',
+    serviceNeedsMetadata: 'Для поиска синхронизированного текста нужны название трека и исполнитель в свойствах аудиофайла.', errorNeedLrcMetadata: 'Нужны название, исполнитель и синхронизированный LRC-текст.', lyricsSourcesUnavailable: 'Все автоматические источники синхронизированного текста сейчас недоступны. Проверь интернет и попробуй ещё раз.', noLyricsFoundSources: 'Синхронизированный текст не найден в автоматических источниках (Musixmatch, LRC Mux и Unison).',
+  }
+};
+
+export function t(key, language = 'ru', values = {}) {
+  const table = translations[language] || translations.ru;
+  const template = table[key] ?? translations.ru[key] ?? key;
+  return template.replace(/\{(\w+)\}/g, (_, name) => values[name] ?? `{${name}}`);
+}
+
+export function translateLyricsServiceMessage(message, language = 'ru') {
+  if (language !== 'en') return message;
+  const mapped = {
+    'Для поиска синхронизированного текста нужны название трека и исполнитель в свойствах аудиофайла.': 'serviceNeedsMetadata',
+    'Все автоматические источники синхронизированного текста сейчас недоступны. Проверь интернет и попробуй ещё раз.': 'lyricsSourcesUnavailable',
+    'Синхронизированный текст не найден в автоматических источниках (Musixmatch, LRC Mux и Unison).': 'noLyricsFoundSources',
+    'Синхронизированный текст не найден.': 'lyricsNotFoundGeneric',
+    'Не удалось загрузить текст песни.': 'lyricsLoadFailed',
+    'Нужны название, исполнитель и синхронизированный LRC-текст.': 'errorNeedLrcMetadata',
+  };
+  return mapped[message] ? t(mapped[message], language) : message;
+}
+
+export function translateLyricsSourceName(sourceName, language = 'ru') {
+  if (language !== 'en' || !sourceName) return sourceName;
+  return sourceName
+    .replace('Локально сохранённый текст', 'Locally saved lyrics')
+    .replace('пословная синхронизация', 'word-by-word sync')
+    .replace('локальная папка', 'local folder');
+}
+
+export function trackCount(count, language = 'ru') {
+  if (language === 'en') return count === 1 ? t('trackCountOne', language) : `${count} tracks`;
+  const lastTwo = Math.abs(count) % 100;
+  const last = lastTwo % 10;
+  const noun = lastTwo >= 11 && lastTwo <= 14 ? 'треков' : last === 1 ? 'трек' : last >= 2 && last <= 4 ? 'трека' : 'треков';
+  return `${count} ${noun}`;
+}
