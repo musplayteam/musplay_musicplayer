@@ -34,7 +34,7 @@ export default function LyricsOverlay({ open, onClose, onOpenSearch, language = 
       })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [open, currentTrack?.id, currentTrack?.title, currentTrack?.artist, currentTrack?.album, currentTrack?.duration, retry]);
+  }, [open, currentTrack?.id, retry]);
 
   const activeLineIndex = useMemo(() => lyrics?.lines?.reduce((active, line, index) => line.time <= currentTime ? index : active, -1) ?? -1, [lyrics, currentTime]);
 

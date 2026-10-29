@@ -36,61 +36,23 @@ function matchScore(expected, actual) {
   return Math.max(coverage * 0.78, jaccard);
 }
 
-function knownArtist(value) {
-  const artist = clean(value);
-  return /^(?:unknown artist|unknown|неизвестн(?:ый|ая|ые)?(?: исполнитель)?|исполнитель не указан)$/i.test(artist) ? '' : artist;
-}
-
 function isLikelySameTrack(track, candidate) {
-  const titleScore = matchScore(track?.title, candidate?.trackName || candidate?.track_name || candidate?.song || candidate?.title || candidate?.track);
-  if (titleScore < 0.62) return false;
-
-  // Local files often have a title tag but no artist tag. In that case, allow
-  // title-based discovery rather than stopping before the fallback catalogs.
-  const requestedArtist = knownArtist(track?.artist);
-  if (!requestedArtist) return true;
-  const actualArtist = knownArtist(candidate?.artistName || candidate?.artist_name || candidate?.artist);
-  if (!actualArtist) return false;
-  return matchScore(requestedArtist, actualArtist) >= 0.32;
+  const titleScore = matchScore(track?.title, candidate?.trackName || candidate?.song || candidate?.title);
+  const artistScore = matchScore(track?.artist, candidate?.artistName || candidate?.artist);
+  return titleScore >= 0.68 && artistScore >= 0.45;
 }
 
-async function requestJson(url, signal, timeoutMs = 8000) {
-  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-
-  // A slow lyrics provider must not block the rest of the fallback chain.
-  // Keep the caller's cancellation separate from this per-request timeout.
-  const controller = new AbortController();
-  let timedOut = false;
-  const abortFromCaller = () => controller.abort();
-  signal?.addEventListener('abort', abortFromCaller, { once: true });
-  const timer = setTimeout(() => {
-    timedOut = true;
-    controller.abort();
-  }, timeoutMs);
-
-  try {
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: { Accept: 'application/json' },
-    });
-    if (!response.ok) {
-      const error = new Error(`HTTP ${response.status}`);
-      error.status = response.status;
-      throw error;
-    }
-    return await response.json();
-  } catch (error) {
-    if (timedOut) {
-      const timeoutError = new Error(`Lyrics provider timed out after ${timeoutMs} ms`);
-      timeoutError.name = 'TimeoutError';
-      throw timeoutError;
-    }
-    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+async function requestJson(url, signal) {
+  const response = await fetch(url, {
+    signal,
+    headers: { Accept: 'application/json' },
+  });
+  if (!response.ok) {
+    const error = new Error(`HTTP ${response.status}`);
+    error.status = response.status;
     throw error;
-  } finally {
-    clearTimeout(timer);
-    signal?.removeEventListener('abort', abortFromCaller);
   }
+  return response.json();
 }
 
 function parseLrc(rawLyrics) {
@@ -185,53 +147,41 @@ function normalizeUnison(data) {
   if (!data || data.success === false) return null;
   const payload = data.data || data;
   const format = String(payload.format || '').toLowerCase();
-  const syncType = String(payload.syncType || payload.sync_type || '').toLowerCase();
+  const syncType = String(payload.syncType || '').toLowerCase();
   if (format === 'plain' || syncType === 'plain') return null;
 
-  const raw = String(payload.lyrics || payload.syncedLyrics || payload.synced_lyrics || '').trim();
+  const raw = String(payload.lyrics || payload.syncedLyrics || '').trim();
   if (!raw) return null;
-  const isTtml = format === 'ttml' || /<tt(?:\s|>)/i.test(raw);
-  const lines = isTtml ? parseTtml(raw) : parseLrc(raw);
+  const lines = format === 'ttml' || raw.includes('<tt')
+    ? parseTtml(raw)
+    : parseLrc(raw);
   if (!lines.length) return null;
 
   return {
     status: 'ok',
-    trackName: payload.song || payload.trackName || payload.track_name || payload.title || '',
-    artistName: payload.artist || payload.artistName || payload.artist_name || '',
-    albumName: payload.album || payload.albumName || payload.album_name || '',
+    trackName: payload.song || payload.trackName || '',
+    artistName: payload.artist || payload.artistName || '',
+    albumName: payload.album || payload.albumName || '',
     plainLyrics: '',
     syncedLyrics: raw,
     lines,
     sourceName: 'Unison · Better Lyrics',
     sourceUrl: 'https://docs.betterlyrics.org/unison',
-    syncType: syncType || (isTtml ? 'richsync' : 'linesync'),
+    syncType: syncType || 'linesync',
     confidence: payload.confidence || '',
-    format: isTtml ? 'ttml' : 'lrc',
   };
-}
-
-function withTimeout(promise, timeoutMs, label = 'Lyrics source') {
-  let timer;
-  const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => {
-      const error = new Error(`${label} timed out after ${timeoutMs} ms`);
-      error.name = 'TimeoutError';
-      reject(error);
-    }, timeoutMs);
-  });
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
 async function findMusixmatchLyrics(track, signal) {
   if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
   const bridge = typeof window !== 'undefined' ? window.electronAPI : null;
   if (typeof bridge?.getMusixmatchLyrics !== 'function') return null;
-  const response = await withTimeout(bridge.getMusixmatchLyrics({
+  const response = await bridge.getMusixmatchLyrics({
     title: clean(track.title),
-    artist: knownArtist(track.artist),
+    artist: clean(track.artist),
     album: clean(track.album),
     duration: Number(track.duration) || 0,
-  }), 6500, 'Musixmatch');
+  });
   if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
   if (!response?.lrc) return null;
   const lines = parseLrc(response.lrc);
@@ -286,29 +236,28 @@ function normalizeLrcmux(data) {
 }
 
 async function findLrcmuxLyrics(track, signal) {
-  const requestedArtist = knownArtist(track.artist);
-  const params = new URLSearchParams({ track_name: clean(track.title) });
-  if (requestedArtist) params.set('artist_name', requestedArtist);
+  const params = new URLSearchParams({
+    track_name: clean(track.title),
+    artist_name: clean(track.artist),
+  });
   if (track.album && !/без альбома|unknown album/i.test(track.album)) params.set('album_name', track.album);
   if (Number(track.duration) > 0) params.set('duration', String(Math.round(track.duration)));
 
-  // Exact lookup requires an artist for reliable matching. Without one, go
-  // directly to broad title search rather than sending an empty artist value.
-  if (requestedArtist) {
-    try {
-      const exact = await requestJson(`${LRCMUX_API}/api/get?${params.toString()}`, signal);
-      const normalized = normalizeLrcmux(exact);
-      if (normalized && isLikelySameTrack(track, normalized)) return normalized;
-    } catch (error) {
-      if (error?.name === 'AbortError') throw error;
-      // Search when the exact endpoint reports a normal miss; network failures
-      // and timeouts should move to the next provider instead of repeating them.
-      if (!error?.status || ![400, 404].includes(error.status)) throw error;
-    }
+  try {
+    const exact = await requestJson(`${LRCMUX_API}/api/get?${params.toString()}`, signal);
+    const normalized = normalizeLrcmux(exact);
+    if (normalized && isLikelySameTrack(track, normalized)) return normalized;
+  } catch (error) {
+    if (error?.name === 'AbortError') throw error;
+    // A missing exact match is expected. Network and rate-limit errors still
+    // fall through to the next source in the chain.
+    if (!error?.status || ![404, 400].includes(error.status)) throw error;
   }
 
-  const searchParams = new URLSearchParams({ track_name: clean(track.title) });
-  if (requestedArtist) searchParams.set('artist_name', requestedArtist);
+  const searchParams = new URLSearchParams({
+    track_name: clean(track.title),
+    artist_name: clean(track.artist),
+  });
   try {
     const result = await requestJson(`${LRCMUX_API}/api/search?${searchParams.toString()}`, signal);
     const candidates = Array.isArray(result) ? result : Array.isArray(result?.data) ? result.data : [];
@@ -335,25 +284,23 @@ async function findLrcmuxLyrics(track, signal) {
 }
 
 async function findUnisonLyrics(track, signal) {
-  const requestedArtist = knownArtist(track.artist);
-  if (requestedArtist) {
-    const params = new URLSearchParams({ song: clean(track.title), artist: requestedArtist });
-    if (track.album && !/без альбома|unknown album/i.test(track.album)) params.set('album', track.album);
-    if (Number(track.duration) > 0) params.set('duration', String(Number(track.duration).toFixed(2)));
+  const params = new URLSearchParams({
+    song: clean(track.title),
+    artist: clean(track.artist),
+  });
+  if (track.album && !/без альбома|unknown album/i.test(track.album)) params.set('album', track.album);
+  if (Number(track.duration) > 0) params.set('duration', String(Number(track.duration).toFixed(2)));
 
-    try {
-      const exact = await requestJson(`${UNISON_API}/lyrics?${params.toString()}`, signal);
-      const normalized = normalizeUnison(exact);
-      if (normalized && isLikelySameTrack(track, normalized)) return normalized;
-    } catch (error) {
-      if (error?.name === 'AbortError') throw error;
-      // A 400/404 is a normal exact-match miss. An unavailable provider should
-      // be recorded by the caller rather than queried again during the timeout.
-      if (!error?.status || ![400, 404].includes(error.status)) throw error;
-    }
+  try {
+    const exact = await requestJson(`${UNISON_API}/lyrics?${params.toString()}`, signal);
+    const normalized = normalizeUnison(exact);
+    if (normalized && isLikelySameTrack(track, normalized)) return normalized;
+  } catch (error) {
+    if (error?.name === 'AbortError') throw error;
+    // Try the search endpoint below if there is no exact match or the service is unavailable.
   }
 
-  const searchParams = new URLSearchParams({ q: [clean(track.title), requestedArtist].filter(Boolean).join(' '), limit: '10' });
+  const searchParams = new URLSearchParams({ q: `${clean(track.title)} ${clean(track.artist)}`, limit: '10' });
   const searchResult = await requestJson(`${UNISON_API}/lyrics/search?${searchParams.toString()}`, signal);
   const candidates = searchResult?.success && Array.isArray(searchResult.data) ? searchResult.data : [];
   const matching = candidates
@@ -379,143 +326,66 @@ export async function searchLyricsOnline(query, artist = '', signal) {
   const titleQuery = clean(query);
   const artistQuery = clean(artist);
   if (!titleQuery) return [];
-  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
 
   const results = [];
   const seen = new Set();
-
-  const add = (sourceName, sourceUrl, raw, title, artistName, albumName = '', copyright = '', format = 'lrc', syncType = '') => {
+  const add = (sourceName, sourceUrl, raw, title, artistName, albumName = '', copyright = '') => {
     const syncedLyrics = String(raw || '').trim();
-    const normalizedFormat = String(format || '').toLowerCase();
-    const isTtml = normalizedFormat === 'ttml' || /<tt(?:\s|>)/i.test(syncedLyrics);
-    // Unison commonly serves TTML, while other providers often return LRC.
-    // The old search path parsed everything as LRC, silently discarding TTML.
-    const lines = isTtml ? parseTtml(syncedLyrics) : parseLrc(syncedLyrics);
-    if (!lines.length || !title) return;
-
-    const resolvedArtist = clean(artistName) || artistQuery;
-    const candidate = { title, artistName: resolvedArtist, trackName: title };
+    const lines = parseLrc(syncedLyrics);
+    if (!lines.length || !title || !artistName) return;
+    const candidate = { title, artistName, trackName: title };
     const requested = { title: titleQuery, artist: artistQuery };
-    if (artistQuery) {
-      if (!isLikelySameTrack(requested, candidate)) return;
-    } else if (matchScore(titleQuery, title) < 0.68) {
-      return;
-    }
-
-    const key = `${normalizeText(title)}::${normalizeText(resolvedArtist)}::${normalizeText(syncedLyrics.slice(0, 100))}`;
+    if (artistQuery ? !isLikelySameTrack(requested, candidate) : matchScore(titleQuery, title) < 0.68) return;
+    const key = `${normalizeText(title)}::${normalizeText(artistName)}::${normalizeText(syncedLyrics.slice(0, 100))}`;
     if (seen.has(key)) return;
     seen.add(key);
     results.push({
-      status: 'ok', trackName: title, title, artistName: resolvedArtist, albumName,
-      plainLyrics: '', syncedLyrics, lines, sourceName, sourceUrl, syncType: syncType || (isTtml ? 'richsync' : 'linesync'), copyright,
-      format: isTtml ? 'ttml' : 'lrc',
+      status: 'ok', trackName: title, title, artistName, albumName, plainLyrics: '', syncedLyrics,
+      lines, sourceName, sourceUrl, syncType: syncedLyrics.includes('<') ? 'richsync' : 'linesync', copyright,
     });
   };
 
-  const addUnisonRecord = (record) => {
-    const normalized = normalizeUnison(record);
-    if (!normalized) return false;
-    const previousCount = results.length;
-    add(
-      normalized.sourceName, normalized.sourceUrl, normalized.syncedLyrics,
-      normalized.trackName || titleQuery, normalized.artistName || artistQuery,
-      normalized.albumName || '', normalized.copyright || '', normalized.format || '', normalized.syncType || '',
-    );
-    return results.length > previousCount;
-  };
-
+  // Musixmatch is queried first, through the existing Electron bridge. This
+  // uses the same provider integration as automatic lyrics for the playing song.
+  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
   const bridge = typeof window !== 'undefined' ? window.electronAPI : null;
-  const tasks = [];
-
-  // Source 1: Musixmatch, through the Electron bridge already used by auto-lyrics.
   if (typeof bridge?.getMusixmatchLyrics === 'function' && artistQuery) {
-    tasks.push((async () => {
-      try {
-        const response = await withTimeout(bridge.getMusixmatchLyrics({ title: titleQuery, artist: artistQuery, album: '', duration: 0 }), 6500, 'Musixmatch');
-        if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-        if (!response?.lrc) return;
+    try {
+      const response = await bridge.getMusixmatchLyrics({ title: titleQuery, artist: artistQuery, album: '', duration: 0 });
+      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+      if (response?.lrc) {
         add(
           response.kind === 'word' ? 'Musixmatch · пословная синхронизация' : 'Musixmatch',
           /^https:\/\//i.test(response.sourceUrl || '') ? response.sourceUrl : 'https://www.musixmatch.com/',
-          response.lrc, response.trackName || titleQuery, response.artistName || artistQuery,
-          '', '', 'lrc', response.kind === 'word' ? 'richsync' : 'linesync',
+          response.lrc,
+          response.trackName || titleQuery,
+          response.artistName || artistQuery,
         );
-      } catch (error) {
-        if (error?.name === 'AbortError' && signal?.aborted) throw error;
-        // A failed provider should not prevent other catalogues from returning results.
       }
-    })());
+    } catch (error) {
+      if (error?.name === 'AbortError') throw error;
+      // Continue with the secondary synced-lyrics catalogue if Musixmatch is unavailable.
+    }
   }
 
-  // Source 2: LRC Mux, an aggregator of public synced-lyrics providers.
-  tasks.push((async () => {
+  if (!signal?.aborted) {
     try {
-      const params = new URLSearchParams({ track_name: titleQuery });
-      if (artistQuery) params.set('artist_name', artistQuery);
-      const response = await requestJson(`${LRCMUX_API}/api/search?${params.toString()}`, signal);
-      const candidates = Array.isArray(response) ? response : Array.isArray(response?.data) ? response.data : Array.isArray(response?.results) ? response.results : [];
+      const params = new URLSearchParams({ track_name: titleQuery, artist_name: artistQuery });
+      const response = await requestJson(`${LRCMUX_API}/api/search?${params}`, signal);
+      const candidates = Array.isArray(response) ? response : Array.isArray(response?.data) ? response.data : [];
       candidates.forEach(item => {
-        const raw = item.syncedLyrics || item.synced_lyrics || item.lyricsfile || item.lyrics || item.lrc || '';
-        const title = item.trackName || item.track_name || item.title || item.song || item.track || '';
-        const artistName = item.artistName || item.artist_name || item.artist || '';
+        const raw = item.syncedLyrics || item.synced_lyrics || item.lyricsfile || item.lyrics;
+        const title = item.trackName || item.track_name || item.title || item.song;
+        const artistName = item.artistName || item.artist_name || item.artist;
         const provider = typeof item.source === 'string' ? item.source : item.source?.name || item.provider || 'LRC Mux';
         const candidateUrl = item.source?.url || item.sourceUrl || item.url || 'https://lrcmux.dev/';
-        add(
-          `LRC Mux${provider && provider !== 'LRC Mux' ? ` · ${provider}` : ''}`,
-          /^https:\/\//i.test(candidateUrl) ? candidateUrl : 'https://lrcmux.dev/',
-          raw, title, artistName, item.albumName || item.album_name || item.album || '', item.copyright || '', item.format || 'lrc', item.syncType || item.sync_type || '',
-        );
+        add(`LRC Mux${provider && provider !== 'LRC Mux' ? ` · ${provider}` : ''}`, /^https:\/\//i.test(candidateUrl) ? candidateUrl : 'https://lrcmux.dev/', raw, title, artistName, item.albumName || item.album_name || item.album || '', item.copyright || '');
       });
     } catch (error) {
-      if (error?.name === 'AbortError' && signal?.aborted) throw error;
+      if (error?.name === 'AbortError') throw error;
     }
-  })());
+  }
 
-  // Source 3: Unison/Better Lyrics. Exact song+artist lookups return the lyric
-  // body directly; the discovery endpoint returns video IDs, which must then be
-  // fetched individually. Both paths support TTML as well as LRC.
-  tasks.push((async () => {
-    try {
-      if (artistQuery) {
-        const params = new URLSearchParams({ song: titleQuery, artist: artistQuery });
-        const exact = await requestJson(`${UNISON_API}/lyrics?${params.toString()}`, signal);
-        if (addUnisonRecord(exact)) return;
-      }
-    } catch (error) {
-      if (error?.name === 'AbortError' && signal?.aborted) throw error;
-      // A no-match on the exact endpoint is normal; continue with discovery.
-    }
-
-    try {
-      const params = new URLSearchParams({ q: artistQuery ? `${titleQuery} ${artistQuery}` : titleQuery, limit: '10' });
-      const searchResult = await requestJson(`${UNISON_API}/lyrics/search?${params.toString()}`, signal);
-      const candidates = Array.isArray(searchResult?.data) ? searchResult.data : Array.isArray(searchResult?.results) ? searchResult.results : [];
-      const matching = candidates
-        .filter(item => item?.videoId || item?.video_id || item?.lyrics || item?.syncedLyrics)
-        .filter(item => artistQuery ? isLikelySameTrack({ title: titleQuery, artist: artistQuery }, item) : matchScore(titleQuery, item.song || item.trackName || item.title) >= 0.68)
-        .sort((a, b) => (matchScore(titleQuery, b.song || b.trackName || b.title) + (artistQuery ? matchScore(artistQuery, b.artist || b.artistName) : 0) + Number(b.matchScore || 0)) - (matchScore(titleQuery, a.song || a.trackName || a.title) + (artistQuery ? matchScore(artistQuery, a.artist || a.artistName) : 0) + Number(a.matchScore || 0)))
-        .slice(0, 5);
-
-      for (const item of matching) {
-        if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-        if (addUnisonRecord({ success: true, data: item })) continue;
-        const videoId = item.videoId || item.video_id;
-        if (!videoId) continue;
-        try {
-          const record = await requestJson(`${UNISON_API}/lyrics?v=${encodeURIComponent(videoId)}`, signal);
-          addUnisonRecord(record);
-        } catch (error) {
-          if (error?.name === 'AbortError' && signal?.aborted) throw error;
-        }
-        if (results.length >= 10) break;
-      }
-    } catch (error) {
-      if (error?.name === 'AbortError' && signal?.aborted) throw error;
-    }
-  })());
-
-  await Promise.allSettled(tasks);
-  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
   return results.sort((a, b) => (
     matchScore(titleQuery, b.trackName) + (artistQuery ? matchScore(artistQuery, b.artistName) : 0)
   ) - (
@@ -552,25 +422,22 @@ export async function findLyrics(track, signal) {
     }
   } catch { /* fall back to online sources if local index cannot be read */ }
 
-  if (!title) {
+  if (!title || !artist || /неизвестн|unknown artist/i.test(artist)) {
     return {
       status: 'missing',
-      message: 'Для автоматического поиска синхронизированного текста нужно название трека. Исполнитель помогает повысить точность, но не обязателен.',
+      message: 'Для поиска синхронизированного текста нужны название трека и исполнитель в свойствах аудиофайла.',
       checkedSources,
     };
   }
 
-  // Prefer Musixmatch when artist metadata is available. Other catalogues can
-  // still search by title if the file contains no usable artist tag.
-  if (knownArtist(artist)) {
-    try {
-      checkedSources.push('Musixmatch');
-      const lyrics = await findMusixmatchLyrics(track, signal);
-      if (lyrics?.lines?.length) return { ...lyrics, checkedSources: [...checkedSources] };
-    } catch (error) {
-      if (error?.name === 'AbortError') throw error;
-      errors.push('Musixmatch');
-    }
+  // Prefer Musixmatch, then check the other synced-lyrics catalogues.
+  try {
+    checkedSources.push('Musixmatch');
+    const lyrics = await findMusixmatchLyrics(track, signal);
+    if (lyrics?.lines?.length) return { ...lyrics, checkedSources: [...checkedSources] };
+  } catch (error) {
+    if (error?.name === 'AbortError') throw error;
+    errors.push('Musixmatch');
   }
 
   try {
