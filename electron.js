@@ -1,21 +1,98 @@
-const { app, BrowserWindow, Menu, ipcMain, shell } = require('electron');
+const {
+  app, BrowserWindow, Menu, Tray, nativeImage, globalShortcut,
+  ipcMain, protocol, net, shell, dialog
+} = require('electron');
 const path = require('path');
+const { pathToFileURL } = require('url');
+const { Readable } = require('stream');
 const fs = require('fs/promises');
+const fsSync = require('fs');
 
-// Keep only one MusPlay process per Windows user. Chromium cache and IndexedDB
-// are shared by the app's profile; parallel instances can lock the same files.
+const AUDIO_EXTENSIONS = new Set([
+  'mp3', 'flac', 'wav', 'm4a', 'aac', 'ogg', 'oga', 'opus', 'wma',
+  'aiff', 'aif', 'ape', 'alac', 'weba'
+]);
+const AUDIO_MIME_TYPES = {
+  mp3: 'audio/mpeg', flac: 'audio/flac', wav: 'audio/wav', m4a: 'audio/mp4',
+  aac: 'audio/aac', ogg: 'audio/ogg', oga: 'audio/ogg', opus: 'audio/ogg',
+  wma: 'audio/x-ms-wma', aiff: 'audio/aiff', aif: 'audio/aiff',
+  ape: 'audio/ape', alac: 'audio/mp4', weba: 'audio/webm'
+};
+
+// The custom scheme is registered before app readiness so Chromium can use it
+// for streaming and Range requests (seeking) without copying entire songs.
+protocol.registerSchemesAsPrivileged([{
+  scheme: 'musplay-audio',
+  privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true }
+}]);
+
+let mainWindow = null;
+let tray = null;
+let rendererReady = false;
+let pendingAudioPaths = [];
+let minimizeToTrayEnabled = false;
+let trayLanguage = 'ru';
+let isQuitting = false;
+const registeredMediaShortcuts = [];
+const unavailableMediaShortcuts = [];
+let lastMediaAction = { action: '', at: 0 };
+
+function extractAudioPaths(args = []) {
+  const found = [];
+  const seen = new Set();
+  for (const raw of args) {
+    if (typeof raw !== 'string' || !raw.trim() || raw.startsWith('--')) continue;
+    const candidate = path.resolve(raw.replace(/^\"|\"$/g, ''));
+    const extension = path.extname(candidate).slice(1).toLowerCase();
+    if (!AUDIO_EXTENSIONS.has(extension) || seen.has(candidate.toLowerCase())) continue;
+    seen.add(candidate.toLowerCase());
+    found.push(candidate);
+  }
+  return found;
+}
+
+function sendToRenderer(channel, payload) {
+  if (!mainWindow || mainWindow.isDestroyed() || !rendererReady) return false;
+  mainWindow.webContents.send(channel, payload);
+  return true;
+}
+
+function queueAudioPaths(paths = []) {
+  const validCandidates = extractAudioPaths(paths);
+  if (!validCandidates.length) return;
+  if (!sendToRenderer('audio:open-files', validCandidates)) {
+    pendingAudioPaths = [...pendingAudioPaths, ...validCandidates];
+  }
+}
+
+function showMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createWindow();
+    return;
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+// Keep only one MusPlay process per Windows user. A second launch with audio
+// files forwards those paths to the existing process instead of opening a
+// second window/profile and locking Chromium's IndexedDB.
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
-    const existingWindow = BrowserWindow.getAllWindows()[0];
-    if (!existingWindow) return;
-    if (existingWindow.isMinimized()) existingWindow.restore();
-    existingWindow.show();
-    existingWindow.focus();
+  app.on('second-instance', (_event, commandLine) => {
+    const paths = extractAudioPaths(commandLine || []);
+    if (paths.length) queueAudioPaths(paths);
+    showMainWindow();
   });
 }
+
+app.on('open-file', (event, filePath) => {
+  event.preventDefault();
+  queueAudioPaths([filePath]);
+});
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -31,6 +108,33 @@ function createWindow() {
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
     },
+  });
+
+  mainWindow = win;
+  rendererReady = false;
+  win.on('close', (event) => {
+    if (minimizeToTrayEnabled && !isQuitting) {
+      event.preventDefault();
+      win.hide();
+    }
+  });
+  win.on('minimize', (event) => {
+    if (minimizeToTrayEnabled && !isQuitting) {
+      event.preventDefault();
+      win.hide();
+    }
+  });
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = null;
+    rendererReady = false;
+  });
+  win.webContents.on('did-finish-load', () => {
+    rendererReady = true;
+    if (pendingAudioPaths.length) {
+      const queued = pendingAudioPaths;
+      pendingAudioPaths = [];
+      win.webContents.send('audio:open-files', queued);
+    }
   });
 
   Menu.setApplicationMenu(null);
@@ -398,20 +502,255 @@ async function searchSavedLyrics(query = '') {
   return entries.filter(item => !q || normalizeLyricsKey(`${item.title} ${item.artist} ${item.albumName}`).includes(q))
     .map(item => ({ ...item, path: path.join(lyricsDirectory(), item.fileName) }));
 }
+ipcMain.handle('lyrics:saved:import-file', async (_event, track = {}) => {
+  const owner = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
+  const selection = await dialog.showOpenDialog(owner, {
+    title: 'Выбрать синхронизированный текст песни',
+    properties: ['openFile'],
+    filters: [
+      { name: 'Синхронизированные тексты', extensions: ['lrc'] },
+      { name: 'Текстовые файлы', extensions: ['txt'] },
+      { name: 'Все файлы', extensions: ['*'] },
+    ],
+  });
+  if (selection.canceled || !selection.filePaths?.[0]) return { canceled: true };
+  const selectedPath = selection.filePaths[0];
+  const raw = await fs.readFile(selectedPath, 'utf8');
+  if (!/\[\d{1,3}:\d{2}(?:[.:]\d{1,3})?\]/.test(raw)) {
+    throw new Error('В выбранном файле не найдено временных меток LRC. Выбери синхронизированный .lrc-файл.');
+  }
+  const title = String(track.title || '').trim();
+  const artist = String(track.artist || '').trim();
+  if (!title || !artist) throw new Error('Сначала выбери трек в MusPlay, затем импортируй его LRC-файл.');
+  const saved = await saveSyncedLyrics({
+    trackName: title,
+    artistName: artist,
+    albumName: String(track.album || ''),
+    syncedLyrics: raw,
+    sourceName: 'Локальный файл',
+    sourceUrl: '',
+  });
+  return { ...saved, importedFrom: selectedPath };
+});
 ipcMain.handle('lyrics:saved:get', async (_event, track) => getSavedLyrics(track));
 ipcMain.handle('lyrics:saved:search', async (_event, query) => searchSavedLyrics(query));
 ipcMain.handle('lyrics:saved:save', async (_event, payload) => saveSyncedLyrics(payload));
 ipcMain.handle('lyrics:saved:folder', async () => lyricsDirectory());
 
+// Persistent preference is kept in Electron's userData folder so the tray
+// behavior is available before the first window is created on the next launch.
+function preferencesFilePath() {
+  return path.join(app.getPath('userData'), 'preferences.json');
+}
+async function loadDesktopPreferences() {
+  try {
+    const value = JSON.parse(await fs.readFile(preferencesFilePath(), 'utf8'));
+    minimizeToTrayEnabled = value?.minimizeToTray === true;
+  } catch {
+    minimizeToTrayEnabled = false;
+  }
+}
+async function saveDesktopPreferences() {
+  const filePath = preferencesFilePath();
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.writeFile(filePath, JSON.stringify({ minimizeToTray: minimizeToTrayEnabled }, null, 2), 'utf8');
+}
+
+function dispatchMediaAction(action) {
+  // Some systems report the same key through both Media Session and a global
+  // accelerator. Normalize Play/Pause to one action to avoid double toggles.
+  const canonicalAction = action === 'play' || action === 'pause' ? 'toggle' : action;
+  const allowed = new Set(['toggle', 'play', 'pause', 'previous', 'next', 'stop']);
+  if (!allowed.has(action)) return;
+  const now = Date.now();
+  if (lastMediaAction.action === canonicalAction && now - lastMediaAction.at < 90) return;
+  lastMediaAction = { action: canonicalAction, at: now };
+  sendToRenderer('media:action', action);
+}
+
+const MEDIA_SHORTCUT_BINDINGS = [
+  ['MediaPlayPause', 'toggle'],
+  ['MediaPreviousTrack', 'previous'],
+  ['MediaNextTrack', 'next'],
+  ['MediaStop', 'stop']
+];
+
+function registerMediaShortcuts() {
+  for (const [accelerator, action] of MEDIA_SHORTCUT_BINDINGS) {
+    try {
+      if (globalShortcut.register(accelerator, () => dispatchMediaAction(action))) {
+        registeredMediaShortcuts.push(accelerator);
+      } else {
+        unavailableMediaShortcuts.push(accelerator);
+        console.warn(`MusPlay: multimedia shortcut is already used or unavailable: ${accelerator}`);
+      }
+    } catch (error) {
+      unavailableMediaShortcuts.push(accelerator);
+      console.warn(`MusPlay: could not register ${accelerator}:`, error);
+    }
+  }
+}
+
+function trayLabels() {
+  if (trayLanguage === 'en') return {
+    open: 'Open MusPlay', playPause: 'Play / Pause', previous: 'Previous track',
+    next: 'Next track', quit: 'Quit'
+  };
+  return {
+    open: 'Открыть MusPlay', playPause: 'Воспроизвести / Пауза',
+    previous: 'Предыдущий трек', next: 'Следующий трек', quit: 'Выход'
+  };
+}
+
+function updateTrayMenu() {
+  if (!tray) return;
+  const labels = trayLabels();
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: labels.open, click: showMainWindow },
+    { type: 'separator' },
+    { label: labels.playPause, click: () => dispatchMediaAction('toggle') },
+    { label: labels.previous, click: () => dispatchMediaAction('previous') },
+    { label: labels.next, click: () => dispatchMediaAction('next') },
+    { type: 'separator' },
+    { label: labels.quit, click: () => { isQuitting = true; app.quit(); } }
+  ]));
+}
+
+function createTray() {
+  if (tray) { updateTrayMenu(); return; }
+  const iconPath = path.join(__dirname, 'public', 'icon.png');
+  let icon = nativeImage.createFromPath(iconPath);
+  if (!icon.isEmpty()) icon = icon.resize({ width: 16, height: 16 });
+  tray = new Tray(icon);
+  tray.setToolTip('MusPlay');
+  updateTrayMenu();
+  tray.on('double-click', showMainWindow);
+}
+
+function destroyTray() {
+  if (!tray) return;
+  tray.destroy();
+  tray = null;
+}
+
+const authorizedAudioPaths = new Set();
+
+function audioUrlForPath(filePath) {
+  const token = Buffer.from(filePath, 'utf8').toString('base64url');
+  return `musplay-audio://audio/${token}`;
+}
+
+async function resolveAudioFile(rawPath) {
+  const filePath = path.resolve(String(rawPath || ''));
+  const extension = path.extname(filePath).slice(1).toLowerCase();
+  if (!path.isAbsolute(filePath) || !AUDIO_EXTENSIONS.has(extension)) return null;
+  try {
+    const stat = await fs.stat(filePath);
+    if (!stat.isFile()) return null;
+    authorizedAudioPaths.add(path.normalize(filePath).toLowerCase());
+    return {
+      path: filePath,
+      url: audioUrlForPath(filePath),
+      name: path.basename(filePath),
+      size: stat.size,
+      lastModified: stat.mtimeMs,
+      mime: AUDIO_MIME_TYPES[extension] || 'application/octet-stream'
+    };
+  } catch {
+    return null;
+  }
+}
+
+function registerAudioProtocol() {
+  protocol.handle('musplay-audio', async (request) => {
+    try {
+      const url = new URL(request.url);
+      if (url.hostname !== 'audio') return new Response('Not found', { status: 404 });
+      const token = url.pathname.split('/').filter(Boolean)[0] || '';
+      const filePath = Buffer.from(token, 'base64url').toString('utf8');
+      const extension = path.extname(filePath).slice(1).toLowerCase();
+      if (!path.isAbsolute(filePath) || !AUDIO_EXTENSIONS.has(extension) ||
+          !authorizedAudioPaths.has(path.normalize(filePath).toLowerCase())) {
+        return new Response('Unsupported audio path', { status: 403 });
+      }
+      const stat = await fs.stat(filePath);
+      if (!stat.isFile()) return new Response('Not found', { status: 404 });
+
+      const headers = new Headers({
+        'Content-Type': AUDIO_MIME_TYPES[extension] || 'application/octet-stream',
+        'Accept-Ranges': 'bytes',
+        'Cache-Control': 'no-store'
+      });
+      if (request.method === 'HEAD') {
+        headers.set('Content-Length', String(stat.size));
+        return new Response(null, { status: 200, headers });
+      }
+
+      const range = request.headers.get('range');
+      if (range) {
+        const match = /^bytes=(\d*)-(\d*)$/i.exec(range.trim());
+        if (!match || (!match[1] && !match[2])) {
+          headers.set('Content-Range', `bytes */${stat.size}`);
+          return new Response(null, { status: 416, headers });
+        }
+        let start = match[1] ? Number(match[1]) : Math.max(0, stat.size - Number(match[2]));
+        let end = match[2] && match[1] ? Number(match[2]) : stat.size - 1;
+        if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || start >= stat.size || end < start) {
+          headers.set('Content-Range', `bytes */${stat.size}`);
+          return new Response(null, { status: 416, headers });
+        }
+        end = Math.min(end, stat.size - 1);
+        headers.set('Content-Range', `bytes ${start}-${end}/${stat.size}`);
+        headers.set('Content-Length', String(end - start + 1));
+        const stream = fsSync.createReadStream(filePath, { start, end });
+        return new Response(Readable.toWeb(stream), { status: 206, headers });
+      }
+
+      headers.set('Content-Length', String(stat.size));
+      const stream = fsSync.createReadStream(filePath);
+      return new Response(Readable.toWeb(stream), { status: 200, headers });
+    } catch (error) {
+      console.warn('MusPlay: audio file could not be streamed:', error?.message || error);
+      return new Response('Audio file unavailable', { status: 404 });
+    }
+  });
+}
+
+ipcMain.handle('audio:resolve-paths', async (_event, paths) => {
+  const candidates = Array.isArray(paths) ? paths.slice(0, 100) : [];
+  const resolved = await Promise.all(candidates.map(resolveAudioFile));
+  return resolved.filter(Boolean);
+});
+ipcMain.handle('app:getMinimizeToTray', () => minimizeToTrayEnabled);
+ipcMain.handle('app:setMinimizeToTray', async (_event, enabled) => {
+  minimizeToTrayEnabled = Boolean(enabled);
+  try { await saveDesktopPreferences(); }
+  catch (error) { console.error('MusPlay: failed to save tray preference:', error); }
+  if (minimizeToTrayEnabled) createTray();
+  else destroyTray();
+  return minimizeToTrayEnabled;
+});
+ipcMain.handle('app:setTrayLanguage', (_event, language) => {
+  trayLanguage = language === 'en' ? 'en' : 'ru';
+  updateTrayMenu();
+  return trayLanguage;
+});
+ipcMain.handle('app:getMediaShortcutStatus', () => ({
+  registered: [...registeredMediaShortcuts],
+  unavailable: [...unavailableMediaShortcuts],
+  supported: MEDIA_SHORTCUT_BINDINGS.map(([accelerator]) => accelerator)
+}));
+ipcMain.on('media:session-action', (_event, action) => dispatchMediaAction(action));
+
 // Custom title-bar controls.
-ipcMain.on('minimize', () => BrowserWindow.getFocusedWindow()?.minimize());
+ipcMain.on('minimize', () => (mainWindow || BrowserWindow.getFocusedWindow())?.minimize());
 ipcMain.on('maximize', () => {
-  const win = BrowserWindow.getFocusedWindow();
+  const win = mainWindow || BrowserWindow.getFocusedWindow();
   if (win?.isMaximized()) win.unmaximize();
   else win?.maximize();
 });
-ipcMain.on('close', () => BrowserWindow.getFocusedWindow()?.close());
-ipcMain.handle('isMaximized', () => BrowserWindow.getFocusedWindow()?.isMaximized() || false);
+ipcMain.on('close', () => (mainWindow || BrowserWindow.getFocusedWindow())?.close());
+ipcMain.handle('isMaximized', () => (mainWindow || BrowserWindow.getFocusedWindow())?.isMaximized() || false);
 ipcMain.handle('app:getVersion', () => app.getVersion());
 ipcMain.handle('app:openExternal', async (_event, url) => {
   try {
@@ -446,9 +785,26 @@ ipcMain.handle('app:checkUpdates', async () => {
 });
 
 if (hasSingleInstanceLock) {
-  app.whenReady().then(createWindow);
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  app.whenReady().then(async () => {
+    if (process.platform === 'win32') app.setAppUserModelId('com.musplay.app');
+    await loadDesktopPreferences();
+    registerAudioProtocol();
+    registerMediaShortcuts();
+    if (minimizeToTrayEnabled) createTray();
+    createWindow();
+    const launchedWithAudio = extractAudioPaths(process.argv.slice(1));
+    if (launchedWithAudio.length) queueAudioPaths(launchedWithAudio);
+  }).catch((error) => {
+    console.error('MusPlay: application startup failed:', error);
   });
+  app.on('activate', showMainWindow);
 }
-app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+
+app.on('before-quit', () => {
+  isQuitting = true;
+  globalShortcut.unregisterAll();
+  destroyTray();
+});
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin' && !minimizeToTrayEnabled) app.quit();
+});

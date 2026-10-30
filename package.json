@@ -1,7 +1,7 @@
 {
   "name": "musplay",
   "private": true,
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "MusPlay — локальный музыкальный плеер",
   "main": "electron.js",
   "author": "Сергей Швецов",
@@ -48,13 +48,39 @@
       "target": [
         "nsis",
         "portable"
+      ],
+      "icon": "build/icon.ico",
+      "fileAssociations": [
+        {
+          "ext": [
+            "mp3",
+            "flac",
+            "wav",
+            "m4a",
+            "aac",
+            "ogg",
+            "oga",
+            "opus",
+            "wma",
+            "aiff",
+            "aif",
+            "ape",
+            "alac",
+            "weba"
+          ],
+          "name": "MusPlay.AudioFile",
+          "description": "Audio file opened with MusPlay",
+          "icon": "build/icon.ico"
+        }
       ]
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "perMachine": true,
+      "allowElevation": true
     }
   }
 }

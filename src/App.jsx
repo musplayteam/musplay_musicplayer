@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Sidebar from './components/Sidebar';
 import MainContent from './components/MainContent';
 import RightPanel from './components/RightPanel';
@@ -9,14 +9,21 @@ import usePlayerStore from './store/playerStore';
 
 export default function App() {
   const initialize = usePlayerStore((state) => state.initialize);
+  const currentTrack = usePlayerStore((state) => state.currentTrack);
+  const isPlaying = usePlayerStore((state) => state.isPlaying);
+  const currentTime = usePlayerStore((state) => state.currentTime);
+  const duration = usePlayerStore((state) => state.duration);
   const [currentView, setCurrentView] = useState('home');
   const [selectedPlaylistId, setSelectedPlaylistId] = useState(null);
   const [showLyricsOverlay, setShowLyricsOverlay] = useState(false);
   const [language, setLanguageState] = useState(() => localStorage.getItem('musplay-language') || 'ru');
   const [theme, setThemeState] = useState(() => localStorage.getItem('musplay-theme') || 'purple');
-  const [appVersion, setAppVersion] = useState('2.1.0');
+  const [appVersion, setAppVersion] = useState('1.1.0');
   const [updateState, setUpdateState] = useState(null);
   const [showUpdateBanner, setShowUpdateBanner] = useState(false);
+  const initializationPromiseRef = useRef(null);
+  const languageRef = useRef(language);
+  languageRef.current = language;
 
   const setLanguage = (value) => { localStorage.setItem('musplay-language', value); setLanguageState(value); };
   const setTheme = (value) => { localStorage.setItem('musplay-theme', value); setThemeState(value); };
@@ -30,14 +37,105 @@ export default function App() {
 
   useEffect(() => {
     document.documentElement.lang = language;
+    window.electronAPI?.setTrayLanguage?.(language)?.catch?.(() => {});
   }, [language]);
 
   useEffect(() => {
-    initialize();
+    initializationPromiseRef.current = Promise.resolve(initialize()).catch((error) => {
+      console.error('MusPlay: initialization failed:', error);
+    });
     window.electronAPI?.getAppVersion?.().then(setAppVersion).catch(() => {});
     const timer = setTimeout(() => { checkUpdates(); }, 1800);
     return () => clearTimeout(timer);
   }, [initialize]);
+
+  // Global media keys and Windows "Open with MusPlay" are delivered by the
+  // Electron main process, so they continue to work while the window is hidden.
+  useEffect(() => {
+    const unsubscribeMedia = window.electronAPI?.onMediaAction?.((action) => {
+      const player = usePlayerStore.getState();
+      if (action === 'toggle' && player.currentTrack) player.togglePlay();
+      else if (action === 'play' && player.currentTrack) player.resumePlayback();
+      else if (action === 'pause') player.pausePlayback();
+      else if (action === 'previous') player.prevTrack();
+      else if (action === 'next') player.nextTrack();
+      else if (action === 'stop') player.stopPlayback();
+    });
+    let active = true;
+    const unsubscribeFiles = window.electronAPI?.onOpenAudioFiles?.(async (paths) => {
+      try {
+        // Wait for the saved library/queue to finish restoring before appending
+        // files opened from Explorer; otherwise initialize() could overwrite them.
+        await initializationPromiseRef.current;
+        if (!active) return;
+        await usePlayerStore.getState().loadAudioPaths(paths);
+      } catch (error) {
+        console.error('MusPlay: не удалось открыть аудиофайл из Проводника', error);
+        window.alert(languageRef.current === 'en'
+          ? (error?.message || 'Could not open the selected audio file.')
+          : (error?.message || 'Не удалось открыть выбранный аудиофайл.'));
+      }
+    });
+    return () => {
+      active = false;
+      unsubscribeMedia?.();
+      unsubscribeFiles?.();
+    };
+  }, []);
+
+  // Publish the current track to Windows Media Session (system media controls,
+  // Bluetooth/headset controls and keyboards supported by Chromium). Commands
+  // are sent through the main process so a simultaneous global shortcut is
+  // de-duplicated centrally.
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return undefined;
+    const session = navigator.mediaSession;
+    const send = action => () => window.electronAPI?.sendMediaSessionAction?.(action);
+    const handlers = {
+      play: send('play'),
+      pause: send('pause'),
+      previoustrack: send('previous'),
+      nexttrack: send('next'),
+      stop: send('stop')
+    };
+    for (const [action, handler] of Object.entries(handlers)) {
+      try { session.setActionHandler(action, handler); } catch { /* unsupported action on this OS */ }
+    }
+    return () => {
+      for (const action of Object.keys(handlers)) {
+        try { session.setActionHandler(action, null); } catch { /* ignore unsupported action */ }
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+    const session = navigator.mediaSession;
+    if (currentTrack && typeof window.MediaMetadata === 'function') {
+      const artwork = currentTrack.cover
+        ? [{ src: currentTrack.cover, sizes: '512x512' }]
+        : [];
+      session.metadata = new window.MediaMetadata({
+        title: currentTrack.title || 'Unknown title',
+        artist: currentTrack.artist || 'Unknown artist',
+        album: currentTrack.album || '',
+        artwork
+      });
+    } else {
+      session.metadata = null;
+    }
+    session.playbackState = currentTrack ? (isPlaying ? 'playing' : 'paused') : 'none';
+    const total = Number(duration || currentTrack?.duration || 0);
+    if (total > 0) {
+      try {
+        session.setPositionState({
+          duration: total,
+          playbackRate: 1,
+          position: Math.max(0, Math.min(Number(currentTime) || 0, total))
+        });
+      } catch { /* duration or position may be invalid while changing tracks */ }
+    }
+  }, [currentTrack, isPlaying, currentTime, duration]);
 
   // Electron/Chromium can latch a wheel gesture to the first scroll container
   // for the lifetime of a wheel burst. Route wheel deltas to the panel currently

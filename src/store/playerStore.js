@@ -71,6 +71,9 @@ const usePlayerStore = create((set, get) => ({
     set({ queue: playable, currentTrack: playable[Math.min(startIndex, playable.length - 1)], isPlaying: true, currentTime: 0 });
   },
   togglePlay: () => set((state) => ({ isPlaying: !state.isPlaying })),
+  resumePlayback: () => { if (get().currentTrack) set({ isPlaying: true }); },
+  pausePlayback: () => set({ isPlaying: false }),
+  stopPlayback: () => set({ isPlaying: false, currentTime: 0 }),
   setCurrentTime: (time) => set({ currentTime: time }),
   setDuration: (duration) => set({ duration }),
 
@@ -104,10 +107,13 @@ const usePlayerStore = create((set, get) => ({
       const tracksToSave = updatedQueue.map(track => serializeTrack(track, { keepFileData: true }));
       localforage.setItem('queue', tracksToSave);
       let newCurrentTrack = state.currentTrack;
-      if (state.currentTrack?.id === trackId) {
-        newCurrentTrack = updatedQueue[0] || null;
-      }
-      return { queue: updatedQueue, currentTrack: newCurrentTrack };
+      const removedCurrentTrack = state.currentTrack?.id === trackId;
+      if (removedCurrentTrack) newCurrentTrack = updatedQueue[0] || null;
+      return {
+        queue: updatedQueue,
+        currentTrack: newCurrentTrack,
+        ...(removedCurrentTrack ? { isPlaying: Boolean(newCurrentTrack), currentTime: 0 } : {})
+      };
     });
   },
 
@@ -169,6 +175,65 @@ const usePlayerStore = create((set, get) => ({
     });
   },
 
+  loadAudioPaths: async (paths) => {
+    const resolver = window.electronAPI?.resolveAudioPaths;
+    if (typeof resolver !== 'function') throw new Error('Открытие файлов через Проводник доступно в установленной версии MusPlay.');
+    const resolvedFiles = await resolver(Array.from(paths || []));
+    if (!resolvedFiles.length) throw new Error('Не удалось открыть аудиофайлы. Возможно, формат не поддерживается или файл перемещён.');
+
+    const newTracks = [];
+    for (const info of resolvedFiles) {
+      try {
+        const response = await fetch(info.url);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const blob = await response.blob();
+        const file = new File([blob], info.name, { type: info.mime || 'application/octet-stream', lastModified: info.lastModified || Date.now() });
+        const metadata = await readAudioMetadata(file, info.name);
+        newTracks.push({
+          id: `external-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+          title: metadata.title || fallbackTitleFromFileName(info.name),
+          artist: metadata.artist || DEFAULT_ARTIST,
+          album: metadata.album || DEFAULT_ALBUM,
+          duration: metadata.duration || 0,
+          url: info.url,
+          sourcePath: info.path,
+          cover: metadata.cover,
+          isLocal: true,
+          fileName: info.name,
+          fileSize: info.size || blob.size,
+          fileType: info.mime || '',
+          lastModified: info.lastModified || 0
+        });
+      } catch (error) {
+        console.warn(`MusPlay: не удалось прочитать «${info.name}»`, error);
+      }
+    }
+
+    if (!newTracks.length) throw new Error('MusPlay не смог прочитать выбранные аудиофайлы.');
+    set((state) => {
+      const normalizePath = value => String(value || '').replace(/\\/g, '/').toLowerCase();
+      const existingTracks = [...state.library, ...state.queue];
+      const existingByPath = new Map(existingTracks
+        .filter(track => track.sourcePath)
+        .map(track => [normalizePath(track.sourcePath), track]));
+      const tracksToPlay = newTracks.map(track => existingByPath.get(normalizePath(track.sourcePath)) || track);
+      const queuePaths = new Set(state.queue.map(track => normalizePath(track.sourcePath)).filter(Boolean));
+      const updatedQueue = [...state.queue, ...newTracks.filter(track => !queuePaths.has(normalizePath(track.sourcePath)))];
+      const libraryPaths = new Set(state.library.map(track => normalizePath(track.sourcePath)).filter(Boolean));
+      const library = [...state.library, ...newTracks.filter(track => !libraryPaths.has(normalizePath(track.sourcePath)))];
+      localforage.setItem('queue', updatedQueue.map(track => serializeTrack(track, { keepFileData: true })));
+      localforage.setItem('library', library.map(track => serializeTrack(track, { keepFileData: true })));
+      return {
+        queue: updatedQueue,
+        library,
+        currentTrack: tracksToPlay[0],
+        isPlaying: true,
+        currentTime: 0
+      };
+    });
+    return newTracks.length;
+  },
+
   loadLocalFiles: async (files) => {
     const newTracks = [];
     const fileArray = Array.from(files || []);
@@ -221,6 +286,16 @@ const usePlayerStore = create((set, get) => ({
       ...savedLibrary,
       ...savedQueue.filter(track => !libraryIds.has(track.id))
     ];
+    const externalPaths = [...new Set(allSavedTracks.map(track => track.sourcePath).filter(Boolean))];
+    const externalUrlByPath = new Map();
+    if (externalPaths.length && window.electronAPI?.resolveAudioPaths) {
+      try {
+        const resolved = await window.electronAPI.resolveAudioPaths(externalPaths);
+        resolved.forEach(item => externalUrlByPath.set(item.path, item.url));
+      } catch (error) {
+        console.warn('MusPlay: не удалось восстановить пути к локальным аудиофайлам', error);
+      }
+    }
 
     // Important: re-read metadata of tracks from older app versions. Otherwise
     // stale filename-based titles remain in IndexedDB even after upgrading code.
@@ -249,7 +324,7 @@ const usePlayerStore = create((set, get) => ({
         ...(refreshed.duration > 0 && !(track.duration > 0) ? { duration: refreshed.duration } : {}),
         ...(refreshed.cover && !track.cover ? { cover: refreshed.cover } : {}),
         fileName,
-        url: fileData ? URL.createObjectURL(fileData) : track.url || null
+        url: fileData ? URL.createObjectURL(fileData) : (externalUrlByPath.get(track.sourcePath) || track.url || null)
       };
       }));
       restoredTracks.push(...restoredBatch);
@@ -261,7 +336,7 @@ const usePlayerStore = create((set, get) => ({
       : restoredTracks.filter(track => track.isLocal);
     const restoredQueue = savedQueue.map(track => byId.get(track.id) || {
       ...track,
-      url: track.fileData ? URL.createObjectURL(track.fileData) : track.url || null
+      url: track.fileData ? URL.createObjectURL(track.fileData) : (externalUrlByPath.get(track.sourcePath) || track.url || null)
     }).filter(track => track.url);
 
     set({

@@ -9,6 +9,8 @@ export default function LyricsOverlay({ open, onClose, onOpenSearch, language = 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [retry, setRetry] = useState(0);
+  const [importingLocal, setImportingLocal] = useState(false);
+  const [localImportMessage, setLocalImportMessage] = useState('');
   const activeLineRef = useRef(null);
   const forceRefreshRef = useRef(false);
   const { currentTrack, currentTime, isPlaying, togglePlay, nextTrack, prevTrack, toggleShuffle, toggleRepeat, repeatMode, isShuffle, favorites, toggleFavorite } = usePlayerStore();
@@ -46,6 +48,28 @@ export default function LyricsOverlay({ open, onClose, onOpenSearch, language = 
     activeLineRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }, [open, activeLineIndex]);
 
+  const importLocalLyrics = async () => {
+    const bridge = window.electronAPI;
+    if (!currentTrack || typeof bridge?.importLocalLyrics !== 'function') return;
+    setImportingLocal(true);
+    setLocalImportMessage('');
+    try {
+      const result = await bridge.importLocalLyrics({
+        title: currentTrack.title,
+        artist: currentTrack.artist,
+        album: currentTrack.album || '',
+      });
+      if (result?.canceled) return;
+      forceRefreshRef.current = true;
+      setRetry(value => value + 1);
+      setLocalImportMessage(language === 'en' ? 'Local synced lyrics imported.' : 'Локальный синхронный текст импортирован.');
+    } catch (err) {
+      setLocalImportMessage(err?.message || (language === 'en' ? 'Could not import this lyrics file.' : 'Не удалось импортировать файл текста.'));
+    } finally {
+      setImportingLocal(false);
+    }
+  };
+
   if (!open) return null;
   const isFavorite = currentTrack && favorites.some(track => track.id === currentTrack.id);
 
@@ -56,6 +80,7 @@ export default function LyricsOverlay({ open, onClose, onOpenSearch, language = 
         <header className="shrink-0 h-14 flex items-center justify-between px-6 md:px-10 border-b border-white/[0.07]">
           <div className="flex items-center gap-3"><FileMusic size={19} className="text-pink-300"/><span className="text-sm font-semibold tracking-wide">{t('lyricsOverlayTitle', language)}</span><span className="hidden sm:inline text-xs text-white/35">{t('syncedToPlayback', language)}</span></div>
           <div className="flex items-center gap-2">
+            <button onClick={importLocalLyrics} disabled={importingLocal || !currentTrack} title={language === 'en' ? 'Import synced lyrics from your computer (.lrc)' : 'Загрузить синхронный текст с компьютера (.lrc)'} className="inline-flex items-center gap-2 rounded-full px-3 py-2 text-xs text-white/70 hover:bg-white/10 hover:text-white disabled:opacity-40 transition"><FileMusic size={15}/><span className="hidden sm:inline">{importingLocal ? (language === 'en' ? 'Importing…' : 'Импорт…') : (language === 'en' ? 'Import .LRC' : 'Импорт .LRC')}</span></button>
             <button onClick={() => { forceRefreshRef.current = true; setRetry(value => value + 1); }} title={t('refreshLyrics', language)} className="rounded-full p-2 text-white/55 hover:bg-white/10 hover:text-white transition"><RefreshCw size={17}/></button>
             <button onClick={onClose} title={t('closeLyrics', language)} className="rounded-full p-2 text-white/65 hover:bg-white/10 hover:text-white transition"><X size={19}/></button>
           </div>
@@ -84,6 +109,7 @@ export default function LyricsOverlay({ open, onClose, onOpenSearch, language = 
                 <p className="mt-4 text-xs text-white/35">{translateLyricsSourceName(lyrics?.sourceName, language) || (loading ? t('lyricsSourceLoading', language) : t('songLyrics', language))}</p>
                 {lyrics?.sourceUrl && <a href={lyrics.sourceUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1.5 text-xs text-pink-200/70 hover:text-pink-100 transition">{t('openSource', language)} <ExternalLink size={12}/></a>}
                 {lyrics?.localPath && <p className="mt-2 text-[11px] text-white/30 break-all">{t('localCopy', language)} {lyrics.localPath}</p>}
+                {localImportMessage && <p role="status" className="mt-2 text-xs text-pink-200/80 break-words">{localImportMessage}</p>}
               </div>
             </div>
 

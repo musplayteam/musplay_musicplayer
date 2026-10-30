@@ -26,6 +26,14 @@ export default function BottomPlayer({ showLyrics = false, onToggleLyrics = () =
   }, [isPlaying, currentTrack]);
 
   useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio || isPlaying || currentTime !== 0 || audio.currentTime === 0) return;
+    try { audio.currentTime = 0; } catch (error) {
+      console.debug('MusPlay: could not reset the audio position:', error);
+    }
+  }, [isPlaying, currentTime, currentTrack]);
+
+  useEffect(() => {
     if (audioRef.current) {
       audioRef.current.volume = isMuted ? 0 : volume;
     }
