@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Play, Trash2, Music, Search, Heart, Library, Clock3, Disc3, Users, ListMusic, ArrowLeft, FileMusic, Loader2, FolderOpen, CheckCircle2 } from 'lucide-react';
+import { Play, Trash2, Music, Search, Heart, Library, Clock3, Disc3, Users, ListMusic, ArrowLeft, FileMusic, Loader2, FolderOpen, CheckCircle2, ListPlus, Pencil } from 'lucide-react';
 import usePlayerStore from '../store/playerStore';
 import { searchLyricsOnline } from '../store/lyricsService';
 import SettingsPage from './SettingsPage';
+import QueuePage from './QueuePage';
+import TagEditorModal from './TagEditorModal';
+import { ft } from '../feature-i18n';
 import { t, trackCount, translateLyricsServiceMessage } from '../i18n';
 
 export default function MainContent({ currentView, selectedPlaylistId, setCurrentView, language, setLanguage, theme, setTheme, appVersion, onCheckUpdates, updateState }) {
@@ -60,6 +63,8 @@ export default function MainContent({ currentView, selectedPlaylistId, setCurren
       return true;
     });
   }, [library, queue]);
+
+  if (currentView === 'queue') return <QueuePage language={language} />;
 
   if (currentView === 'settings') return <SettingsPage language={language} setLanguage={setLanguage} theme={theme} setTheme={setTheme} appVersion={appVersion} onCheckUpdates={onCheckUpdates} updateState={updateState} />;
 
@@ -192,7 +197,21 @@ export default function MainContent({ currentView, selectedPlaylistId, setCurren
 }
 
 function TrackList({ tracks, favorites = [], onPlay, onFavorite, onRemove, language = 'ru' }) {
-  return <div className="rounded-2xl border border-white/[0.07] overflow-hidden">{tracks.map((track, index) => <div key={`${track.id}-${index}`} className="flex items-center gap-3 px-4 py-3 border-b border-white/[0.05] last:border-0 hover:bg-white/[0.045] group"><button onClick={() => track.url && onPlay(track)} disabled={!track.url} title={t('playTrack', language)} className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-600/70 to-pink-500/50 overflow-hidden flex items-center justify-center shrink-0 disabled:opacity-40">{track.cover ? <img src={track.cover} alt="" className="w-full h-full object-cover"/> : <Play size={15} fill="currentColor"/>}</button><div className="flex-1 min-w-0"><p className="text-sm font-medium truncate">{track.title || t('noTitle', language)}</p><p className="text-xs text-gray-400 truncate">{track.artist || t('unknownArtist', language)}{track.album ? ` · ${track.album}` : ''}</p></div>{onFavorite && <button onClick={() => onFavorite(track)} title={t('likeTrack', language)} className={`p-2 ${favorites.some(item => item.id === track.id) ? 'text-pink-400' : 'text-gray-500 opacity-0 group-hover:opacity-100 hover:text-pink-300'}`}><Heart size={17} fill={favorites.some(item => item.id === track.id) ? 'currentColor' : 'none'}/></button>}{onRemove && <button onClick={() => onRemove(track)} title={t('removeFromPlaylist', language)} className="p-2 text-gray-500 hover:text-red-400"><Trash2 size={16}/></button>}<span className="text-xs text-gray-500 w-8 text-right">{track.duration ? `${Math.floor(track.duration / 60)}:${String(Math.floor(track.duration % 60)).padStart(2, '0')}` : ''}</span></div>)}</div>;
+  const [editingTrack, setEditingTrack] = useState(null);
+  const addToQueue = usePlayerStore(state => state.addToQueue);
+  const queue = usePlayerStore(state => state.queue);
+  return <>
+    <div className="rounded-2xl border border-white/[0.07] overflow-hidden">{tracks.map((track, index) => <div key={`${track.id}-${index}`} className="flex items-center gap-3 px-4 py-3 border-b border-white/[0.05] last:border-0 hover:bg-white/[0.045] group">
+      <button onClick={() => track.url && onPlay(track)} disabled={!track.url} title={t('playTrack', language)} className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-600/70 to-pink-500/50 overflow-hidden flex items-center justify-center shrink-0 disabled:opacity-40">{track.cover ? <img src={track.cover} alt="" className="w-full h-full object-cover"/> : <Play size={15} fill="currentColor"/>}</button>
+      <div className="flex-1 min-w-0"><p className="text-sm font-medium truncate">{track.title || t('noTitle', language)}</p><p className="text-xs text-gray-400 truncate">{track.artist || t('unknownArtist', language)}{track.album ? ` · ${track.album}` : ''}</p></div>
+      {track.isLocal && <button onClick={() => addToQueue(track)} disabled={queue.some(item => item.id === track.id)} title={`${ft('add', language)} · ${ft('queueTitle', language)}`} className="p-2 text-gray-500 hover:text-purple-300 disabled:opacity-25"><ListPlus size={16}/></button>}
+      {track.isLocal && <button onClick={() => setEditingTrack(track)} title={ft('editTags', language)} className="p-2 text-gray-500 hover:text-purple-300"><Pencil size={15}/></button>}
+      {onFavorite && <button onClick={() => onFavorite(track)} title={t('likeTrack', language)} className={`p-2 ${favorites.some(item => item.id === track.id) ? 'text-pink-400' : 'text-gray-500 opacity-0 group-hover:opacity-100 hover:text-pink-300'}`}><Heart size={17} fill={favorites.some(item => item.id === track.id) ? 'currentColor' : 'none'}/></button>}
+      {onRemove && <button onClick={() => onRemove(track)} title={t('removeFromPlaylist', language)} className="p-2 text-gray-500 hover:text-red-400"><Trash2 size={16}/></button>}
+      <span className="text-xs text-gray-500 w-8 text-right">{track.duration ? `${Math.floor(track.duration / 60)}:${String(Math.floor(track.duration % 60)).padStart(2, '0')}` : ''}</span>
+    </div>)}</div>
+    {editingTrack && <TagEditorModal track={editingTrack} language={language} onClose={() => setEditingTrack(null)} />}
+  </>;
 }
 function DashboardCard({ title, subtitle, icon: Icon, onClick }) { return <button onClick={onClick} className="text-left rounded-2xl p-5 bg-white/[0.045] hover:bg-white/[0.08] border border-white/5 transition"><Icon size={24} className="text-purple-300 mb-5"/><p className="font-semibold">{title}</p><p className="text-sm text-gray-400 truncate mt-1">{subtitle}</p></button>; }
 function EmptyState({ text }) { return <div className="py-16 px-6 text-center text-gray-400"><Music size={34} className="mx-auto mb-3 text-purple-300/70"/><p className="text-sm">{text}</p></div>; }

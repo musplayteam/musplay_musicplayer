@@ -170,12 +170,14 @@ function metadataText(metadata) {
     albumArtist: cleanText(common.albumartist) || cleanText(common.albumArtist) ||
       getNativeText(metadata, ['TPE2', 'TP2', 'AART', 'ALBUMARTIST']),
     album: cleanText(common.album) || cleanText(common.albumTitle) || getNativeText(metadata, ['TALB', 'TAL', '©ALB', 'ALBUM']),
+    year: cleanText(common.year) || getNativeText(metadata, ['TDRC', 'TYER', 'DATE']),
+    genre: cleanText(common.genre) || getNativeText(metadata, ['TCON', '©GEN', 'GENRE']),
     duration: Number.isFinite(metadata?.format?.duration) ? metadata.format.duration : 0,
     picture: Array.isArray(common.picture) ? common.picture[0] : null
   };
 }
 
-export async function readAudioMetadata(file, fileName = file?.name || '') {
+export async function readAudioMetadata(file, fileName = file?.name || '', { includeCover = true } = {}) {
   let parsed = null;
   const errors = [];
 
@@ -204,11 +206,13 @@ export async function readAudioMetadata(file, fileName = file?.name || '') {
     title: fromLibrary.title || fromId3.title || '',
     artist: fromLibrary.artist || fromLibrary.albumArtist || fromId3.artist || fromId3.albumArtist || '',
     album: fromLibrary.album || fromId3.album || '',
+    year: fromLibrary.year || '',
+    genre: fromLibrary.genre || '',
     duration: fromLibrary.duration || 0,
     cover: null
   };
 
-  const picture = fromLibrary.picture;
+  const picture = includeCover ? fromLibrary.picture : null;
   if (picture?.data?.length) {
     try {
       const bytes = new Uint8Array(picture.data);

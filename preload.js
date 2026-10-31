@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 // The main process can deliver files immediately after did-finish-load, while
 // React may not have mounted its listeners yet. Buffer those paths in preload.
@@ -23,6 +23,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setTrayLanguage: (language) => ipcRenderer.invoke('app:setTrayLanguage', language),
   getMediaShortcutStatus: () => ipcRenderer.invoke('app:getMediaShortcutStatus'),
   resolveAudioPaths: (paths) => ipcRenderer.invoke('audio:resolve-paths', paths),
+  getPathForFile: (file) => {
+    try { return webUtils.getPathForFile(file); } catch { return ''; }
+  },
+  chooseMusicFolders: () => ipcRenderer.invoke('audio:choose-folders'),
+  scanAudioFolders: async (folders) => {
+    const result = await ipcRenderer.invoke('audio:scan-folders', folders);
+    return { files: Array.isArray(result?.files) ? result.files : [], truncated: Boolean(result?.truncated), skippedLarge: Number(result?.skippedLarge) || 0 };
+  },
+  writeAudioTags: (filePath, tags) => ipcRenderer.invoke('audio:write-tags', filePath, tags),
   sendMediaSessionAction: (action) => {
     const allowed = new Set(['play', 'pause', 'previous', 'next', 'stop']);
     if (allowed.has(action)) ipcRenderer.send('media:session-action', action);

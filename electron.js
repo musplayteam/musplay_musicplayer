@@ -679,8 +679,13 @@ function registerAudioProtocol() {
       const headers = new Headers({
         'Content-Type': AUDIO_MIME_TYPES[extension] || 'application/octet-stream',
         'Accept-Ranges': 'bytes',
-        'Cache-Control': 'no-store'
+        'Cache-Control': 'no-store',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Range',
+        'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+        'Access-Control-Expose-Headers': 'Accept-Ranges, Content-Length, Content-Range'
       });
+      if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
       if (request.method === 'HEAD') {
         headers.set('Content-Length', String(stat.size));
         return new Response(null, { status: 200, headers });
@@ -716,11 +721,168 @@ function registerAudioProtocol() {
   });
 }
 
+
+function encodeSynchsafe(value) {
+  return Buffer.from([
+    (value >> 21) & 0x7f,
+    (value >> 14) & 0x7f,
+    (value >> 7) & 0x7f,
+    value & 0x7f,
+  ]);
+}
+
+function readSynchsafe(buffer, offset = 0) {
+  return ((buffer[offset] & 0x7f) << 21) |
+    ((buffer[offset + 1] & 0x7f) << 14) |
+    ((buffer[offset + 2] & 0x7f) << 7) |
+    (buffer[offset + 3] & 0x7f);
+}
+
+function createId3TextFrame(id, value, version) {
+  const safe = String(value ?? '').replace(/\u0000/g, '').trim().slice(0, 500);
+  if (!safe) return null;
+  let payload;
+  if (version === 3) {
+    const utf16 = Buffer.from(safe, 'utf16le');
+    payload = Buffer.concat([Buffer.from([1, 0xff, 0xfe]), utf16]);
+  } else {
+    payload = Buffer.concat([Buffer.from([3]), Buffer.from(safe, 'utf8')]);
+  }
+  const frameHeader = Buffer.alloc(10);
+  frameHeader.write(id, 0, 4, 'ascii');
+  if (version === 4) encodeSynchsafe(payload.length).copy(frameHeader, 4);
+  else frameHeader.writeUInt32BE(payload.length, 4);
+  return Buffer.concat([frameHeader, payload]);
+}
+
+async function writeMp3Tags(filePath, tags = {}) {
+  const normalized = path.normalize(filePath).toLowerCase();
+  if (!authorizedAudioPaths.has(normalized)) throw new Error('Этот аудиофайл не был открыт MusPlay. Сначала добавь его в библиотеку.');
+  if (path.extname(filePath).toLowerCase() !== '.mp3') throw new Error('Запись тегов пока поддерживается только для MP3.');
+  const stat = await fs.stat(filePath);
+  if (!stat.isFile() || stat.size < 1 || stat.size > 512 * 1024 * 1024) {
+    throw new Error('Файл слишком большой или недоступен для безопасного редактирования (лимит 512 МБ).');
+  }
+
+  const original = await fs.readFile(filePath);
+  let version = 4;
+  let audioOffset = 0;
+  const retainedFrames = [];
+  const replaced = new Set(['TIT2', 'TPE1', 'TALB', 'TDRC', 'TYER', 'TCON']);
+
+  if (original.length >= 10 && original.subarray(0, 3).toString('ascii') === 'ID3') {
+    version = original[3];
+    if (version !== 3 && version !== 4) throw new Error('Редактирование старой версии ID3 пока не поддерживается.');
+    const flags = original[5];
+    if (flags & 0xd0) throw new Error('У этого MP3 используются расширенные или сжатые ID3-теги. MusPlay не будет перезаписывать их, чтобы не повредить данные.');
+    const tagSize = readSynchsafe(original, 6);
+    audioOffset = 10 + tagSize;
+    if (audioOffset > original.length) throw new Error('Повреждён заголовок ID3. Файл не изменён.');
+
+    let offset = 10;
+    while (offset + 10 <= audioOffset) {
+      const id = original.subarray(offset, offset + 4).toString('ascii');
+      if (!/^[A-Z0-9]{4}$/.test(id)) break; // padding
+      const frameSize = version === 4
+        ? readSynchsafe(original, offset + 4)
+        : original.readUInt32BE(offset + 4);
+      if (!frameSize || offset + 10 + frameSize > audioOffset) {
+        throw new Error('Не удалось безопасно разобрать существующие ID3-теги. Файл не изменён.');
+      }
+      if (!replaced.has(id)) retainedFrames.push(original.subarray(offset, offset + 10 + frameSize));
+      offset += 10 + frameSize;
+    }
+  }
+
+  const yearFrame = version === 3 ? 'TYER' : 'TDRC';
+  const frameMap = [
+    ['TIT2', tags.title], ['TPE1', tags.artist], ['TALB', tags.album],
+    [yearFrame, tags.year], ['TCON', tags.genre],
+  ];
+  const changedFrames = frameMap.map(([id, value]) => createId3TextFrame(id, value, version)).filter(Boolean);
+  const body = Buffer.concat([...retainedFrames, ...changedFrames]);
+  const header = Buffer.alloc(10);
+  header.write('ID3', 0, 3, 'ascii');
+  header[3] = version;
+  header[4] = 0;
+  header[5] = 0;
+  encodeSynchsafe(body.length).copy(header, 6);
+  const updated = Buffer.concat([header, body, original.subarray(audioOffset)]);
+
+  const backupDir = path.join(app.getPath('userData'), 'tag-backups');
+  await fs.mkdir(backupDir, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const backupPath = path.join(backupDir, `${path.basename(filePath)}.${stamp}.bak`);
+  await fs.copyFile(filePath, backupPath);
+  const tempPath = `${filePath}.musplay-${process.pid}.tmp`;
+  try {
+    await fs.writeFile(tempPath, updated, { flag: 'wx' });
+    await fs.rename(tempPath, filePath);
+  } catch (error) {
+    try { await fs.unlink(tempPath); } catch {}
+    throw new Error(`Не удалось безопасно сохранить теги. Исходный файл оставлен без изменений. ${error.message || ''}`);
+  }
+  return { success: true, backupPath, path: filePath };
+}
+
+async function scanAudioFolders(folders = []) {
+  const roots = Array.isArray(folders) ? folders.slice(0, 30) : [];
+  const found = [];
+  const visited = new Set();
+  const maxFiles = 10000;
+  const maxDepth = 12;
+
+  async function walk(directory, depth) {
+    if (found.length > maxFiles || depth > maxDepth) return;
+    let real;
+    try { real = await fs.realpath(directory); } catch { return; }
+    const key = path.normalize(real).toLowerCase();
+    if (visited.has(key)) return;
+    visited.add(key);
+    let entries;
+    try { entries = await fs.readdir(real, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      if (found.length > maxFiles) break;
+      if (entry.name.startsWith('.') || entry.isSymbolicLink()) continue;
+      const fullPath = path.join(real, entry.name);
+      if (entry.isDirectory()) await walk(fullPath, depth + 1);
+      else if (entry.isFile() && AUDIO_EXTENSIONS.has(path.extname(entry.name).slice(1).toLowerCase())) {
+        found.push(fullPath);
+        if (found.length > maxFiles) break;
+      }
+    }
+  }
+
+  for (const folder of roots) {
+    if (typeof folder !== 'string' || !path.isAbsolute(folder)) continue;
+    await walk(folder, 0);
+  }
+  const unique = [...new Set(found.slice(0, maxFiles).map(file => path.normalize(file)))];
+  const resolved = [];
+  for (let index = 0; index < unique.length; index += 50) {
+    const batch = await Promise.all(unique.slice(index, index + 50).map(resolveAudioFile));
+    resolved.push(...batch.filter(Boolean));
+  }
+  // Avoid pulling extremely large files into renderer memory during metadata reads.
+  const maxMetadataReadBytes = 128 * 1024 * 1024;
+  const files = resolved.filter(file => file.size <= maxMetadataReadBytes);
+  return { files, truncated: found.length > maxFiles, skippedLarge: resolved.length - files.length };
+}
+
 ipcMain.handle('audio:resolve-paths', async (_event, paths) => {
   const candidates = Array.isArray(paths) ? paths.slice(0, 100) : [];
   const resolved = await Promise.all(candidates.map(resolveAudioFile));
   return resolved.filter(Boolean);
 });
+ipcMain.handle('audio:choose-folders', async () => {
+  const result = await dialog.showOpenDialog(mainWindow || undefined, {
+    title: 'Выбери папки с музыкой', properties: ['openDirectory', 'multiSelections', 'createDirectory']
+  });
+  return result.canceled ? [] : result.filePaths.slice(0, 30);
+});
+ipcMain.handle('audio:scan-folders', async (_event, folders) => scanAudioFolders(folders));
+ipcMain.handle('audio:write-tags', async (_event, filePath, tags) => writeMp3Tags(String(filePath || ''), tags || {}));
+
 ipcMain.handle('app:getMinimizeToTray', () => minimizeToTrayEnabled);
 ipcMain.handle('app:setMinimizeToTray', async (_event, enabled) => {
   minimizeToTrayEnabled = Boolean(enabled);

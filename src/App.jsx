@@ -6,6 +6,7 @@ import BottomPlayer from './components/BottomPlayer';
 import LyricsOverlay from './components/LyricsOverlay';
 import CustomTitleBar from './components/CustomTitleBar';
 import usePlayerStore from './store/playerStore';
+import { t } from './i18n';
 
 export default function App() {
   const initialize = usePlayerStore((state) => state.initialize);
@@ -16,9 +17,20 @@ export default function App() {
   const [currentView, setCurrentView] = useState('home');
   const [selectedPlaylistId, setSelectedPlaylistId] = useState(null);
   const [showLyricsOverlay, setShowLyricsOverlay] = useState(false);
-  const [language, setLanguageState] = useState(() => localStorage.getItem('musplay-language') || 'ru');
+  const [language, setLanguageState] = useState(() => {
+    const saved = localStorage.getItem('musplay-language');
+    if (saved) return saved;
+    const browserLocale = (navigator.languages?.[0] || navigator.language || 'en').toLowerCase();
+    const exact = ['ru','en','es','fr','de','pt','it','pl','uk','tr','ar','zh-cn','ja','ko','hi','id','vi','nl','az','bn','he','kk','be'].find(code => code.toLowerCase() === browserLocale);
+    const prefix = browserLocale.split('-')[0];
+    const supported = new Set(['ru','en','es','fr','de','pt','it','pl','uk','tr','ar','zh-cn','ja','ko','hi','id','vi','nl','az','bn','he','kk','be']);
+    const chosen = exact || (supported.has(prefix) ? prefix : (prefix === 'zh' ? 'zh-CN' : 'en'));
+    localStorage.setItem('musplay-language', chosen);
+    localStorage.setItem('musplay-language-auto-selected', '1');
+    return chosen;
+  });
   const [theme, setThemeState] = useState(() => localStorage.getItem('musplay-theme') || 'purple');
-  const [appVersion, setAppVersion] = useState('1.1.0');
+  const [appVersion, setAppVersion] = useState('1.2.0');
   const [updateState, setUpdateState] = useState(null);
   const [showUpdateBanner, setShowUpdateBanner] = useState(false);
   const initializationPromiseRef = useRef(null);
@@ -219,9 +231,9 @@ export default function App() {
       {showUpdateBanner && updateState?.updateAvailable && (
         <div className="fixed top-12 left-1/2 -translate-x-1/2 z-40 mt-2 max-w-[calc(100%-2rem)] rounded-xl border border-purple-300/20 bg-[#241333]/95 shadow-xl shadow-black/30 backdrop-blur px-4 py-2.5 flex items-center gap-3" role="status">
           <span className="w-2 h-2 rounded-full bg-pink-400 shrink-0 animate-pulse" />
-          <span className="text-xs sm:text-sm whitespace-nowrap">{language === 'en' ? `MusPlay ${updateState.latestVersion} is available` : `Доступно обновление MusPlay ${updateState.latestVersion}`}</span>
-          <button onClick={openReleases} className="text-xs sm:text-sm font-semibold text-pink-300 hover:text-white whitespace-nowrap">{language === 'en' ? 'View update' : 'Скачать'} ↗</button>
-          <button onClick={() => setShowUpdateBanner(false)} className="text-gray-400 hover:text-white text-lg leading-none ml-1" aria-label={language === 'en' ? 'Dismiss' : 'Закрыть'}>×</button>
+          <span className="text-xs sm:text-sm whitespace-nowrap">{t('updateAvailable', language, { latestVersion: updateState.latestVersion })}</span>
+          <button onClick={openReleases} className="text-xs sm:text-sm font-semibold text-pink-300 hover:text-white whitespace-nowrap">{t('downloadVersion', language, { latestVersion: updateState.latestVersion })} ↗</button>
+          <button onClick={() => setShowUpdateBanner(false)} className="text-gray-400 hover:text-white text-lg leading-none ml-1" aria-label={t('close', language)}>×</button>
         </div>
       )}
       
@@ -251,7 +263,7 @@ export default function App() {
       
       {/* Плеер приклеен к низу окна */}
       <LyricsOverlay language={language} open={showLyricsOverlay} onClose={() => setShowLyricsOverlay(false)} onOpenSearch={() => { setShowLyricsOverlay(false); setCurrentView('lyrics'); }} />
-      <BottomPlayer language={language} showLyrics={showLyricsOverlay} onToggleLyrics={() => setShowLyricsOverlay(value => !value)} />
+      <BottomPlayer language={language} showLyrics={showLyricsOverlay} onToggleLyrics={() => setShowLyricsOverlay(value => !value)} onOpenQueue={() => setCurrentView('queue')} />
     </div>
   );
 }
