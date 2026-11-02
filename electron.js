@@ -106,12 +106,15 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      devTools: false,
       preload: path.join(__dirname, 'preload.js'),
     },
   });
 
   mainWindow = win;
   rendererReady = false;
+
+
   win.on('close', (event) => {
     if (minimizeToTrayEnabled && !isQuitting) {
       event.preventDefault();
@@ -173,7 +176,6 @@ function createWindow() {
   const isDev = !app.isPackaged && process.env.NODE_ENV === 'development';
   if (isDev) {
     win.loadURL('http://localhost:5173');
-    if (process.env.MUSPLAY_OPEN_DEVTOOLS === '1') win.webContents.openDevTools();
   } else {
     // Packaged builds load Vite's compiled files locally; no Vite server is required.
     win.loadFile(path.join(__dirname, 'dist', 'index.html')).catch((error) => {
@@ -425,6 +427,125 @@ ipcMain.handle('lyrics:musixmatch:check', async () => {
 });
 
 ipcMain.handle('lyrics:musixmatch', async (_event, input) => getMusixmatchLyrics(input));
+
+// Renderer-safe lyric transport. Requests are performed in Electron's main
+// process through Chromium's network stack, avoiding renderer CORS restrictions
+// while preserving normal TLS certificate validation and system proxy support.
+const LYRICS_ALLOWED_HOSTS = new Set([
+  'api.liriqo-alfarrizi.my.id',
+  'lrclib.net',
+  'apic-desktop.musixmatch.com',
+  'api.lrcmux.dev',
+  'unison.boidu.dev',
+  'api.betterlyrics.org',
+  'lyrics-api.binimum.org',
+  'lyrics-storage.binimum.org',
+  'lyricsplus.prjktla.my.id',
+  'lyricsplus.atomix.one',
+  'lyrics-plus-backend.vercel.app',
+  'lyricsplus-seven.vercel.app',
+  'lyricsplus.binimum.org',
+  'lyricsplus.prjktla.workers.dev',
+  'api.lyrics.ovh',
+  'solr.sscdn.co',
+  'www.letras.mus.br',
+]);
+const activeLyricsRequests = new Map();
+const lyricsHostCooldowns = new Map();
+
+function validateLyricsUrl(value) {
+  const url = new URL(String(value || ''));
+  if (url.protocol !== 'https:' || !LYRICS_ALLOWED_HOSTS.has(url.hostname.toLowerCase())) {
+    throw new Error('Lyrics request host is not allowed');
+  }
+  if (url.username || url.password || (url.port && url.port !== '443')) {
+    throw new Error('Lyrics request URL contains unsupported credentials or port');
+  }
+  return url;
+}
+
+ipcMain.handle('lyrics:request', async (event, input = {}) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) {
+    throw new Error('Lyrics request is only available to the MusPlay window');
+  }
+  const requestId = String(input.requestId || '');
+  if (!/^[a-zA-Z0-9_-]{1,120}$/.test(requestId)) {
+    throw new Error('Invalid lyrics request identifier');
+  }
+
+  let currentUrl = validateLyricsUrl(input.url);
+  const originalHost = currentUrl.hostname.toLowerCase();
+  const cooldown = lyricsHostCooldowns.get(originalHost);
+  if (cooldown && cooldown.until > Date.now()) {
+    return { error: 'MUSPLAY_PROVIDER_COOLDOWN', code: 'MUSPLAY_PROVIDER_COOLDOWN' };
+  }
+  if (cooldown) lyricsHostCooldowns.delete(originalHost);
+
+  const accept = input.accept === 'application/xml,text/xml,text/plain,*/*'
+    ? 'application/xml,text/xml,text/plain,*/*'
+    : 'application/json';
+  const timeoutMs = Math.max(1000, Math.min(30000, Number(input.timeoutMs) || 9000));
+  const controller = new AbortController();
+  activeLyricsRequests.set(requestId, { sender: event.sender, controller });
+  const timeout = setTimeout(() => controller.abort(), timeoutMs + 1000);
+
+  try {
+    let response;
+    for (let redirectCount = 0; redirectCount <= 3; redirectCount++) {
+      response = await net.fetch(currentUrl.href, {
+        method: 'GET',
+        headers: { Accept: accept },
+        signal: controller.signal,
+        redirect: 'manual',
+      });
+
+      if ([301, 302, 303, 307, 308].includes(response.status)) {
+        const location = response.headers.get('location');
+        if (!location || redirectCount === 3) break;
+        currentUrl = validateLyricsUrl(new URL(location, currentUrl).href);
+        continue;
+      }
+      break;
+    }
+
+    const body = await response.text();
+    const retryAfter = response.headers.get('retry-after') || '';
+    // Provider-wide authentication/payment failures and server outages are
+    // cooled down so every subsequent track does not repeat the same failure.
+    if ([401, 402, 403].includes(response.status)) {
+      lyricsHostCooldowns.set(originalHost, { until: Date.now() + 15 * 60 * 1000, reason: response.status });
+    } else if (response.status === 503 || response.status === 502 || response.status === 504) {
+      lyricsHostCooldowns.set(originalHost, { until: Date.now() + 60 * 1000, reason: response.status });
+    }
+
+    return {
+      ok: response.ok,
+      status: response.status,
+      headers: { 'retry-after': retryAfter },
+      body,
+    };
+  } catch (error) {
+    const message = String(error?.message || error || 'Lyrics network request failed');
+    if (/ERR_CERT_|ERR_SSL_|CERT_COMMON_NAME_INVALID/i.test(message)) {
+      lyricsHostCooldowns.set(originalHost, { until: Date.now() + 15 * 60 * 1000, reason: 'tls' });
+      return { error: message, code: 'TLS_FAILURE' };
+    }
+    if (controller.signal.aborted) {
+      return { error: 'Lyrics request aborted or timed out', code: 'ABORTED' };
+    }
+    return { error: message, code: 'NETWORK_FAILURE' };
+  } finally {
+    clearTimeout(timeout);
+    const active = activeLyricsRequests.get(requestId);
+    if (active?.controller === controller) activeLyricsRequests.delete(requestId);
+  }
+});
+
+ipcMain.on('lyrics:abort', (event, requestId) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) return;
+  const active = activeLyricsRequests.get(String(requestId || ''));
+  if (active?.sender === event.sender) active.controller.abort();
+});
 
 
 // Local synced-lyrics collection. Lyrics are stored as .lrc files under

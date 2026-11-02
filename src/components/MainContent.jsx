@@ -200,15 +200,28 @@ function TrackList({ tracks, favorites = [], onPlay, onFavorite, onRemove, langu
   const [editingTrack, setEditingTrack] = useState(null);
   const addToQueue = usePlayerStore(state => state.addToQueue);
   const queue = usePlayerStore(state => state.queue);
+  const currentTrack = usePlayerStore(state => state.currentTrack);
+  const isPlaying = usePlayerStore(state => state.isPlaying);
+  const resumePlayback = usePlayerStore(state => state.resumePlayback);
+  const handleTitleClick = (track) => {
+    if (!track?.url) return;
+    if (currentTrack?.id === track.id) {
+      if (!isPlaying) resumePlayback();
+      return;
+    }
+    onPlay?.(track);
+  };
   return <>
-    <div className="rounded-2xl border border-white/[0.07] overflow-hidden">{tracks.map((track, index) => <div key={`${track.id}-${index}`} className="flex items-center gap-3 px-4 py-3 border-b border-white/[0.05] last:border-0 hover:bg-white/[0.045] group">
-      <button onClick={() => track.url && onPlay(track)} disabled={!track.url} title={t('playTrack', language)} className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-600/70 to-pink-500/50 overflow-hidden flex items-center justify-center shrink-0 disabled:opacity-40">{track.cover ? <img src={track.cover} alt="" className="w-full h-full object-cover"/> : <Play size={15} fill="currentColor"/>}</button>
-      <div className="flex-1 min-w-0"><p className="text-sm font-medium truncate">{track.title || t('noTitle', language)}</p><p className="text-xs text-gray-400 truncate">{track.artist || t('unknownArtist', language)}{track.album ? ` · ${track.album}` : ''}</p></div>
-      {track.isLocal && <button onClick={() => addToQueue(track)} disabled={queue.some(item => item.id === track.id)} title={`${ft('add', language)} · ${ft('queueTitle', language)}`} className="p-2 text-gray-500 hover:text-purple-300 disabled:opacity-25"><ListPlus size={16}/></button>}
-      {track.isLocal && <button onClick={() => setEditingTrack(track)} title={ft('editTags', language)} className="p-2 text-gray-500 hover:text-purple-300"><Pencil size={15}/></button>}
-      {onFavorite && <button onClick={() => onFavorite(track)} title={t('likeTrack', language)} className={`p-2 ${favorites.some(item => item.id === track.id) ? 'text-pink-400' : 'text-gray-500 opacity-0 group-hover:opacity-100 hover:text-pink-300'}`}><Heart size={17} fill={favorites.some(item => item.id === track.id) ? 'currentColor' : 'none'}/></button>}
-      {onRemove && <button onClick={() => onRemove(track)} title={t('removeFromPlaylist', language)} className="p-2 text-gray-500 hover:text-red-400"><Trash2 size={16}/></button>}
-      <span className="text-xs text-gray-500 w-8 text-right">{track.duration ? `${Math.floor(track.duration / 60)}:${String(Math.floor(track.duration % 60)).padStart(2, '0')}` : ''}</span>
+    <div className="rounded-2xl border border-white/[0.07] overflow-hidden">{tracks.map((track, index) => <div key={`${track.id}-${index}`} className="relative flex items-center gap-3 px-4 py-3 border-b border-white/[0.05] last:border-0 hover:bg-white/[0.045] group">
+      {/* Full-row click target. Visible controls are layered above it, so their own actions never start playback. */}
+      <button type="button" onClick={() => handleTitleClick(track)} disabled={!track.url} aria-label={`${t('playTrack', language)}: ${track.title || t('noTitle', language)} — ${track.artist || t('unknownArtist', language)}`} title={track.url ? t('playTrack', language) : undefined} className="absolute inset-0 z-0 h-full w-full rounded-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-purple-400 disabled:cursor-default" />
+      <button onClick={() => track.url && onPlay(track)} disabled={!track.url} title={t('playTrack', language)} className="relative z-10 pointer-events-auto w-10 h-10 rounded-lg bg-gradient-to-br from-purple-600/70 to-pink-500/50 overflow-hidden flex items-center justify-center shrink-0 disabled:opacity-40">{track.cover ? <img src={track.cover} alt="" className="w-full h-full object-cover"/> : <Play size={15} fill="currentColor"/>}</button>
+      <div className="relative z-10 pointer-events-none flex-1 min-w-0"><span className="block max-w-full text-left text-sm font-medium truncate transition-colors group-hover:text-purple-300">{track.title || t('noTitle', language)}</span><p className="text-xs text-gray-400 truncate">{track.artist || t('unknownArtist', language)}{track.album ? ` · ${track.album}` : ''}</p></div>
+      {track.isLocal && <button onClick={() => addToQueue(track)} disabled={queue.some(item => item.id === track.id)} title={`${ft('add', language)} · ${ft('queueTitle', language)}`} className="relative z-10 pointer-events-auto p-2 text-gray-500 hover:text-purple-300 disabled:opacity-25"><ListPlus size={16}/></button>}
+      {track.isLocal && <button onClick={() => setEditingTrack(track)} title={ft('editTags', language)} className="relative z-10 pointer-events-auto p-2 text-gray-500 hover:text-purple-300"><Pencil size={15}/></button>}
+      {onFavorite && <button onClick={() => onFavorite(track)} title={t('likeTrack', language)} className={`relative z-10 pointer-events-auto p-2 ${favorites.some(item => item.id === track.id) ? 'text-pink-400' : 'text-gray-500 opacity-0 group-hover:opacity-100 hover:text-pink-300'}`}><Heart size={17} fill={favorites.some(item => item.id === track.id) ? 'currentColor' : 'none'}/></button>}
+      {onRemove && <button onClick={() => onRemove(track)} title={t('removeFromPlaylist', language)} className="relative z-10 pointer-events-auto p-2 text-gray-500 hover:text-red-400"><Trash2 size={16}/></button>}
+      <span className="relative z-10 pointer-events-none text-xs text-gray-500 w-8 text-right">{track.duration ? `${Math.floor(track.duration / 60)}:${String(Math.floor(track.duration % 60)).padStart(2, '0')}` : ''}</span>
     </div>)}</div>
     {editingTrack && <TagEditorModal track={editingTrack} language={language} onClose={() => setEditingTrack(null)} />}
   </>;

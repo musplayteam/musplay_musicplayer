@@ -63,4 +63,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   searchSavedLyrics: (query) => ipcRenderer.invoke('lyrics:saved:search', query),
   saveSyncedLyrics: (payload) => ipcRenderer.invoke('lyrics:saved:save', payload),
   getLyricsFolder: () => ipcRenderer.invoke('lyrics:saved:folder'),
+  requestLyrics: (request) => ipcRenderer.invoke('lyrics:request', request),
+  abortLyricsRequest: (requestId) => ipcRenderer.send('lyrics:abort', requestId),
 });

@@ -15,6 +15,7 @@ export default function QueuePage({ language = 'ru' }) {
   const isPlaying = usePlayerStore(state => state.isPlaying);
   const playTrack = usePlayerStore(state => state.playTrack);
   const togglePlay = usePlayerStore(state => state.togglePlay);
+  const resumePlayback = usePlayerStore(state => state.resumePlayback);
   const removeFromQueue = usePlayerStore(state => state.removeFromQueue);
   const moveInQueue = usePlayerStore(state => state.moveInQueue);
   const clearQueue = usePlayerStore(state => state.clearQueue);
@@ -41,7 +42,7 @@ export default function QueuePage({ language = 'ru' }) {
                 {track.cover ? <img src={track.cover} alt="" className="w-full h-full object-cover"/> : active && isPlaying ? <Pause size={16}/> : <Play size={16} fill="currentColor"/>}
               </button>
               <div className="min-w-0 flex-1">
-                <p className={`text-sm font-medium truncate ${active ? 'text-purple-200' : 'text-white'}`}>{track.title || '—'}</p>
+                <button type="button" onClick={() => { if (active) { if (!isPlaying) resumePlayback(); } else playTrack(track); }} className={`block max-w-full text-left text-sm font-medium truncate hover:text-purple-300 focus-visible:outline-none focus-visible:text-purple-300 transition-colors ${active ? 'text-purple-200' : 'text-white'}`} title={t('playAction', language)}>{track.title || '—'}</button>
                 <p className="text-xs text-gray-400 truncate">{track.artist || '—'}{track.album ? ` · ${track.album}` : ''}</p>
               </div>
               {active && <span className="text-[11px] text-purple-300 mr-1">{ft('nowPlaying', language)}</span>}

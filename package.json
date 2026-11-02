@@ -1,7 +1,7 @@
 {
   "name": "musplay",
   "private": true,
-  "version": "1.2.0",
+  "version": "1.2.2",
   "description": "MusPlay — локальный музыкальный плеер",
   "main": "electron.js",
   "author": "Сергей Швецов",
@@ -13,6 +13,7 @@
     "electron:build": "npm run build && electron-builder --win --x64"
   },
   "dependencies": {
+    "buffer": "^6.0.3",
     "localforage": "^1.10.0",
     "lucide-react": "^0.468.0",
     "music-metadata-browser": "^2.5.11",

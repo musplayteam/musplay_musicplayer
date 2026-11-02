@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { X, RefreshCw, Loader2, FileMusic, SkipBack, SkipForward, Play, Pause, Shuffle, Repeat, Repeat1, Heart, ExternalLink, Music } from 'lucide-react';
 import usePlayerStore from '../store/playerStore';
-import { findLyrics } from '../store/lyricsService';
+import { findLyrics, restoreLyricWordSpacing } from '../store/lyricsService';
 import { t, translateLyricsServiceMessage, translateLyricsSourceName } from '../i18n';
 
 export default function LyricsOverlay({ open, onClose, onOpenSearch, language = 'ru' }) {
@@ -42,6 +42,7 @@ export default function LyricsOverlay({ open, onClose, onOpenSearch, language = 
   }, [open, currentTrack?.id, currentTrack?.title, currentTrack?.artist, currentTrack?.album, currentTrack?.duration, retry]);
 
   const activeLineIndex = useMemo(() => lyrics?.lines?.reduce((active, line, index) => line.time <= currentTime ? index : active, -1) ?? -1, [lyrics, currentTime]);
+  const renderableLines = useMemo(() => (lyrics?.lines || []).map(line => ({ line, words: restoreLyricWordSpacing(line) })), [lyrics?.lines]);
 
   useEffect(() => {
     if (!open || activeLineIndex < 0) return;
@@ -114,11 +115,11 @@ export default function LyricsOverlay({ open, onClose, onOpenSearch, language = 
             </div>
 
             <div className="min-h-[320px] min-w-0 flex flex-col justify-center lg:pl-3">
-              {loading ? <div className="py-16 text-center text-white/55"><Loader2 size={26} className="animate-spin mx-auto mb-4 text-pink-200"/><p>{t('searchingLyricsInMusixmatch', language)}</p></div>
+              {loading ? <div className="py-16 text-center text-white/55"><Loader2 size={26} className="animate-spin mx-auto mb-4 text-pink-200"/><p>{language === 'en' ? 'Searching lyric catalogs…' : 'Поиск по музыкальным каталогам…'}</p></div>
                 : error ? <div className="py-16 text-center lg:text-left"><p className="text-2xl md:text-3xl font-bold leading-snug text-white/75">{translateLyricsServiceMessage(error, language)}</p><button onClick={() => setRetry(value => value + 1)} className="mt-5 inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-2.5 text-sm hover:bg-white/15 transition"><RefreshCw size={15}/>{t('retrySearch', language)}</button></div>
                 : lyrics?.lines?.length ? <div className="max-h-full overflow-y-auto py-10 pr-3 space-y-5 text-left scroll-smooth">
-                    {lyrics.lines.map((line, index) => <p key={`${line.time}-${index}`} ref={index === activeLineIndex ? activeLineRef : null} className={`origin-left text-2xl md:text-3xl xl:text-[2.5rem] font-extrabold leading-[1.18] tracking-tight transition-all duration-300 ${index === activeLineIndex ? 'text-white opacity-100 scale-[1.015]' : index < activeLineIndex ? 'text-white/38' : 'text-white/55 hover:text-white/75'}`}>
-                      {line.words?.length ? line.words.map((word, wordIndex) => { const nextWord = line.words[wordIndex + 1]; const activeWord = index === activeLineIndex && currentTime >= word.time && (!nextWord || currentTime < nextWord.time); return <React.Fragment key={`${word.time}-${wordIndex}`}><span className={activeWord ? 'text-pink-200' : ''}>{word.text}</span>{wordIndex < line.words.length - 1 ? ' ' : ''}</React.Fragment>; }) : (line.text || '♪')}
+                    {renderableLines.map(({ line, words: renderWords }, index) => <p key={`${line.time}-${index}`} ref={index === activeLineIndex ? activeLineRef : null} className={`origin-left text-2xl md:text-3xl xl:text-[2.5rem] font-extrabold leading-[1.18] tracking-tight transition-all duration-300 ${lyrics?.syncType === 'plain' ? 'text-white/85 opacity-100' : index === activeLineIndex ? 'text-white opacity-100 scale-[1.015]' : index < activeLineIndex ? 'text-white/38' : 'text-white/55 hover:text-white/75'}`}>
+                      {renderWords?.length ? renderWords.map((word, wordIndex) => { const nextWord = renderWords[wordIndex + 1]; const activeWord = index === activeLineIndex && currentTime >= word.time && (!nextWord || currentTime < nextWord.time); return <React.Fragment key={`${word.time}-${wordIndex}`}><span className={activeWord ? 'text-pink-200' : ''}>{word.text}</span>{wordIndex < renderWords.length - 1 ? (word.separator ?? ' ') : ''}</React.Fragment>; }) : (line.text || '♪')}
                     </p>)}
                   </div>
                 : <div className="py-16 text-center lg:text-left"><p className="text-2xl md:text-3xl font-bold leading-snug text-white/60">{t('noLyricsForSong', language)}</p><p className="mt-3 text-sm text-white/35">{t('searchLyricsInstruction', language)}</p><button onClick={onOpenSearch || onClose} className="mt-5 rounded-full bg-white/10 px-4 py-2.5 text-sm hover:bg-white/15 transition">{t('goToLyricsSearch', language)}</button></div>}
