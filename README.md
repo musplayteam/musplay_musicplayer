@@ -140,8 +140,7 @@ When reporting a bug, please include:
 
 ## 📄 License
 
-A license has not yet been specified for this project. Usage and redistribution terms will be determined separately.
-
+MIT-License
 ---
 
 # 🇷🇺 Русский
@@ -269,7 +268,7 @@ MusPlay развивается вокруг нескольких принцип�
 
 ## 📄 Лицензия
 
-Лицензия проекта пока не указана. Условия использования и распространения будут определены отдельно.
+MIT-Лицензия
 
 ---
 
