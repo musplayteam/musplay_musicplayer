@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { X, RefreshCw, Loader2, FileMusic, SkipBack, SkipForward, Play, Pause, Shuffle, Repeat, Repeat1, Heart, ExternalLink, Music } from 'lucide-react';
+import { X, RefreshCw, Loader2, FileMusic, SkipBack, SkipForward, Play, Pause, Shuffle, Repeat, Repeat1, Heart, ExternalLink, Music, Volume2, VolumeX } from 'lucide-react';
 import usePlayerStore from '../store/playerStore';
 import { findLyrics, restoreLyricWordSpacing } from '../store/lyricsService';
 import { t, translateLyricsServiceMessage, translateLyricsSourceName } from '../i18n';
@@ -11,9 +11,27 @@ export default function LyricsOverlay({ open, onClose, onOpenSearch, language = 
   const [retry, setRetry] = useState(0);
   const [importingLocal, setImportingLocal] = useState(false);
   const [localImportMessage, setLocalImportMessage] = useState('');
+  const [mounted, setMounted] = useState(open);
+  const [entered, setEntered] = useState(false);
   const activeLineRef = useRef(null);
   const forceRefreshRef = useRef(false);
-  const { currentTrack, currentTime, isPlaying, togglePlay, nextTrack, prevTrack, toggleShuffle, toggleRepeat, repeatMode, isShuffle, favorites, toggleFavorite } = usePlayerStore();
+  const { currentTrack, currentTime, isPlaying, togglePlay, nextTrack, prevTrack, toggleShuffle, toggleRepeat, repeatMode, isShuffle, favorites, toggleFavorite, volume, isMuted, setVolume, toggleMute } = usePlayerStore();
+
+  useEffect(() => {
+    let frameId;
+    let closeTimer;
+    if (open) {
+      setMounted(true);
+      frameId = requestAnimationFrame(() => setEntered(true));
+    } else {
+      setEntered(false);
+      closeTimer = window.setTimeout(() => setMounted(false), 440);
+    }
+    return () => {
+      if (frameId) cancelAnimationFrame(frameId);
+      if (closeTimer) window.clearTimeout(closeTimer);
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open || !currentTrack) {
@@ -71,17 +89,17 @@ export default function LyricsOverlay({ open, onClose, onOpenSearch, language = 
     }
   };
 
-  if (!open) return null;
+  if (!mounted) return null;
   const isFavorite = currentTrack && favorites.some(track => track.id === currentTrack.id);
 
   return (
-    <section className="fixed inset-x-0 top-12 bottom-20 z-40 overflow-hidden bg-[#180b1a]/[0.97] text-white backdrop-blur-2xl animate-in fade-in duration-300">
+    <section aria-hidden={!open} className={`musplay-lyrics-panel fixed inset-x-0 top-12 bottom-0 z-40 overflow-hidden bg-[#180b1a]/[0.97] text-white backdrop-blur-2xl ${entered ? 'is-open' : ''}`}>
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_18%_20%,rgba(128,30,40,0.32),transparent_48%),radial-gradient(ellipse_at_80%_75%,rgba(90,42,115,0.24),transparent_48%)] pointer-events-none" />
       <div className="relative h-full min-h-0 flex flex-col">
         <header className="shrink-0 h-14 flex items-center justify-between px-6 md:px-10 border-b border-white/[0.07]">
           <div className="flex items-center gap-3"><FileMusic size={19} className="text-pink-300"/><span className="text-sm font-semibold tracking-wide">{t('lyricsOverlayTitle', language)}</span><span className="hidden sm:inline text-xs text-white/35">{t('syncedToPlayback', language)}</span></div>
           <div className="flex items-center gap-2">
-            <button onClick={importLocalLyrics} disabled={importingLocal || !currentTrack} title={language === 'en' ? 'Import synced lyrics from your computer (.lrc)' : 'Загрузить синхронный текст с компьютера (.lrc)'} className="inline-flex items-center gap-2 rounded-full px-3 py-2 text-xs text-white/70 hover:bg-white/10 hover:text-white disabled:opacity-40 transition"><FileMusic size={15}/><span className="hidden sm:inline">{importingLocal ? (language === 'en' ? 'Importing…' : 'Импорт…') : (language === 'en' ? 'Import .LRC' : 'Импорт .LRC')}</span></button>
+            <button onClick={importLocalLyrics} disabled={importingLocal || !currentTrack} title={t('importLrcTooltip', language)} className="inline-flex items-center gap-2 rounded-full px-3 py-2 text-xs text-white/70 hover:bg-white/10 hover:text-white disabled:opacity-40 transition"><FileMusic size={15}/><span className="hidden sm:inline">{importingLocal ? t('importLrcLoading', language) : t('importLrc', language)}</span></button>
             <button onClick={() => { forceRefreshRef.current = true; setRetry(value => value + 1); }} title={t('refreshLyrics', language)} className="rounded-full p-2 text-white/55 hover:bg-white/10 hover:text-white transition"><RefreshCw size={17}/></button>
             <button onClick={onClose} title={t('closeLyrics', language)} className="rounded-full p-2 text-white/65 hover:bg-white/10 hover:text-white transition"><X size={19}/></button>
           </div>
@@ -99,6 +117,12 @@ export default function LyricsOverlay({ open, onClose, onOpenSearch, language = 
                     <button onClick={togglePlay} title={isPlaying ? t('pause', language) : t('playAction', language)} className="w-14 h-14 rounded-full bg-yellow-300 text-black flex items-center justify-center shadow-xl transition-transform hover:scale-105">{isPlaying ? <Pause size={23} fill="currentColor"/> : <Play size={23} fill="currentColor" className="ml-0.5"/>}</button>
                     <button onClick={nextTrack} title={t('nextTrack', language)} className="w-10 h-10 rounded-full bg-black/55 text-white/85 flex items-center justify-center transition hover:bg-black/80"><SkipForward size={18} fill="currentColor"/></button>
                     <button onClick={toggleRepeat} title={t('repeat', language)} className={`w-10 h-10 rounded-full bg-black/55 flex items-center justify-center transition hover:bg-black/80 ${repeatMode !== 'none' ? 'text-pink-300' : 'text-white/75'}`}>{repeatMode === 'one' ? <Repeat1 size={18}/> : <Repeat size={18}/>}</button>
+                  </div>
+                  <div className="flex items-center gap-3 rounded-full bg-black/55 px-3 py-2" onClick={event => event.stopPropagation()}>
+                    <button type="button" onClick={toggleMute} title={isMuted || volume === 0 ? t('unmuteVolume', language) : t('muteVolume', language)} aria-label={isMuted || volume === 0 ? t('unmuteVolume', language) : t('muteVolume', language)} className="text-white/85 hover:text-pink-200 transition">
+                      {isMuted || volume === 0 ? <VolumeX size={17}/> : <Volume2 size={17}/>}
+                    </button>
+                    <input type="range" aria-label={t('volume', language)} min="0" max="1" step="0.01" value={isMuted ? 0 : volume} onChange={event => setVolume(Number(event.target.value))} className="w-24 accent-pink-400 cursor-pointer" />
                   </div>
                   <button onClick={() => toggleFavorite(currentTrack)} title={isFavorite ? t('removeFromLiked', language) : t('likeTrack', language)} className={`flex items-center gap-2 rounded-full px-4 py-2 bg-black/55 hover:bg-black/80 transition ${isFavorite ? 'text-pink-300' : 'text-white/80'}`}><Heart size={18} fill={isFavorite ? 'currentColor' : 'none'}/><span className="text-sm">{isFavorite ? t('inLikedSongs', language) : t('likeTrack', language)}</span></button>
                 </div>

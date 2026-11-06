@@ -4,3 +4,368 @@ body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
+
+/* MusPlay motion system: short, restrained transitions across the desktop UI. */
+.musplay-app-shell button:not(:disabled) {
+  transition-property: color, background-color, border-color, box-shadow, opacity, transform, filter;
+  transition-duration: 160ms;
+  transition-timing-function: cubic-bezier(0.2, 0.75, 0.25, 1);
+}
+
+.musplay-app-shell button:not(:disabled):active {
+  transform: scale(0.975);
+}
+
+.musplay-app-shell input,
+.musplay-app-shell textarea,
+.musplay-app-shell select {
+  transition: border-color 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
+}
+
+.musplay-nav-item {
+  transform: translateX(0);
+}
+
+.musplay-nav-item.is-active {
+  box-shadow: inset 2px 0 0 rgba(216, 180, 254, 0.8), 0 5px 18px rgba(124, 58, 237, 0.08);
+}
+
+.musplay-nav-item:not(.is-active):hover {
+  transform: translateX(2px);
+}
+
+.musplay-view-stage {
+  opacity: 1;
+  min-width: 0;
+}
+
+.musplay-view-stage.musplay-view-enter {
+  animation: musplay-view-enter 220ms cubic-bezier(0.2, 0.75, 0.25, 1) both;
+}
+
+@keyframes musplay-view-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.musplay-app-shell [role="dialog"] {
+  animation: musplay-dialog-enter 190ms cubic-bezier(0.2, 0.75, 0.25, 1) both;
+}
+
+@keyframes musplay-dialog-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Initial restore overlay: appears only for a genuinely slow user-data restore. */
+.musplay-startup-overlay {
+  position: fixed;
+  inset: 3rem 0 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  isolation: isolate;
+  background:
+    radial-gradient(ellipse at 50% 44%, rgba(91, 33, 182, 0.24), transparent 42%),
+    radial-gradient(ellipse at 15% 88%, rgba(157, 23, 77, 0.12), transparent 40%),
+    linear-gradient(135deg, #10091c 0%, #0b0812 52%, #10091b 100%);
+  color: #fff;
+  animation: musplay-loading-enter 240ms ease-out both;
+}
+
+.musplay-startup-overlay.is-closing {
+  animation: musplay-loading-exit 220ms ease-in both;
+  pointer-events: none;
+}
+
+.musplay-startup-ambient {
+  position: absolute;
+  z-index: -1;
+  width: 440px;
+  height: 440px;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0.16;
+  pointer-events: none;
+}
+
+.musplay-startup-ambient-one {
+  top: -250px;
+  left: calc(50% - 400px);
+  background: #8b5cf6;
+}
+
+.musplay-startup-ambient-two {
+  right: calc(50% - 440px);
+  bottom: -300px;
+  background: #db2777;
+  opacity: 0.12;
+}
+
+.musplay-startup-content {
+  width: min(520px, calc(100% - 48px));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  transform: translateY(-12px);
+}
+
+.musplay-startup-mark {
+  position: relative;
+  width: 112px;
+  height: 112px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 24px;
+  border-radius: 34px;
+  background: linear-gradient(145deg, rgba(168, 85, 247, 0.16), rgba(219, 39, 119, 0.08));
+  border: 1px solid rgba(216, 180, 254, 0.17);
+  box-shadow: 0 18px 70px rgba(109, 40, 217, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.musplay-startup-icon {
+  position: relative;
+  z-index: 2;
+  width: 58px;
+  height: 58px;
+  object-fit: contain;
+  filter: drop-shadow(0 0 20px rgba(168, 85, 247, 0.62));
+  animation: musplay-logo-breathe 2.8s ease-in-out infinite;
+}
+
+.musplay-startup-orbit,
+.musplay-startup-orbit-inner {
+  position: absolute;
+  inset: -12px;
+  border: 1px solid rgba(192, 132, 252, 0.25);
+  border-radius: 42px;
+  animation: musplay-orbit-pulse 2.8s ease-out infinite;
+}
+
+.musplay-startup-orbit-inner {
+  inset: 8px;
+  border-color: rgba(244, 114, 182, 0.2);
+  border-radius: 27px;
+  animation-delay: 0.9s;
+}
+
+.musplay-startup-brand {
+  font-size: 30px;
+  line-height: 1.1;
+  font-weight: 750;
+  letter-spacing: -0.045em;
+  color: #fff;
+}
+
+.musplay-startup-version {
+  margin-top: 9px;
+  color: rgba(196, 181, 253, 0.58);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.28em;
+}
+
+.musplay-startup-title {
+  margin: 42px 0 0;
+  font-size: clamp(19px, 2.5vw, 23px);
+  line-height: 1.35;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+  color: rgba(255, 255, 255, 0.96);
+}
+
+.musplay-startup-description {
+  max-width: 420px;
+  margin: 9px 0 0;
+  color: rgba(203, 195, 216, 0.68);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.musplay-startup-loader {
+  position: relative;
+  width: min(260px, 72vw);
+  height: 3px;
+  margin-top: 32px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: rgba(196, 181, 253, 0.13);
+}
+
+.musplay-startup-loader span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 38%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #8b5cf6, #d946ef, #f472b6);
+  box-shadow: 0 0 18px rgba(192, 132, 252, 0.65);
+  animation: musplay-loading-sweep 1.35s cubic-bezier(0.55, 0.05, 0.35, 0.95) infinite;
+}
+
+.musplay-startup-hint {
+  margin-top: 13px;
+  color: rgba(167, 157, 184, 0.58);
+  font-size: 11px;
+  letter-spacing: 0.015em;
+}
+
+.musplay-startup-footer {
+  position: absolute;
+  bottom: 22px;
+  color: rgba(167, 157, 184, 0.3);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+}
+
+.musplay-startup-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 26px;
+}
+
+.musplay-startup-button {
+  padding: 10px 18px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  transition: transform 160ms ease, background-color 160ms ease, border-color 160ms ease;
+}
+
+.musplay-startup-button.primary {
+  color: #fff;
+  background: linear-gradient(110deg, #7c3aed, #a855f7);
+  box-shadow: 0 8px 24px rgba(124, 58, 237, 0.24);
+}
+
+.musplay-startup-button.secondary {
+  color: rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.musplay-startup-button:hover { filter: brightness(1.1); }
+.musplay-startup-button:active { transform: scale(0.97); }
+
+@keyframes musplay-loading-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes musplay-loading-exit {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes musplay-loading-sweep {
+  0% { transform: translateX(-110%); }
+  100% { transform: translateX(290%); }
+}
+
+@keyframes musplay-logo-breathe {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-3px) scale(1.035); }
+}
+
+@keyframes musplay-orbit-pulse {
+  0% { transform: scale(0.92); opacity: 0.55; }
+  75%, 100% { transform: scale(1.12); opacity: 0; }
+}
+
+@media (max-width: 640px) {
+  .musplay-startup-mark { width: 94px; height: 94px; border-radius: 29px; }
+  .musplay-startup-icon { width: 50px; height: 50px; }
+  .musplay-startup-title { margin-top: 34px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .musplay-app-shell button:not(:disabled),
+  .musplay-app-shell input,
+  .musplay-app-shell textarea,
+  .musplay-app-shell select {
+    transition-duration: 0.01ms !important;
+  }
+  .musplay-view-stage.musplay-view-enter,
+  .musplay-app-shell [role="dialog"],
+  .musplay-startup-overlay,
+  .musplay-startup-icon,
+  .musplay-startup-orbit,
+  .musplay-startup-orbit-inner,
+  .musplay-startup-loader span {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+
+/* The lyrics view replaces the compact bottom player and moves as one panel. */
+.musplay-lyrics-panel {
+  transform: translate3d(0, 105%, 0);
+  opacity: 0;
+  transition: transform 420ms cubic-bezier(0.22, 0.78, 0.2, 1), opacity 300ms ease;
+  will-change: transform, opacity;
+}
+.musplay-lyrics-panel.is-open {
+  transform: translate3d(0, 0, 0);
+  opacity: 1;
+}
+.musplay-lyrics-panel:not(.is-open) {
+  pointer-events: none;
+}
+.musplay-bottom-player {
+  transform: translate3d(0, 0, 0);
+  opacity: 1;
+  transition: transform 360ms cubic-bezier(0.22, 0.78, 0.2, 1), opacity 240ms ease;
+  will-change: transform, opacity;
+}
+.musplay-bottom-player.is-hidden {
+  transform: translate3d(0, 110%, 0);
+  opacity: 0;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .musplay-lyrics-panel,
+  .musplay-bottom-player {
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* User-customizable motion and density preferences. */
+:root[data-motion="reduced"] *,
+:root[data-motion="reduced"] *::before,
+:root[data-motion="reduced"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+:root[data-compact-lists="true"] .musplay-nav-item { padding-top: 0.42rem; padding-bottom: 0.42rem; }
+:root[data-compact-lists="true"] .musplay-track-row { padding-top: 0.45rem !important; padding-bottom: 0.45rem !important; }
+:root[data-accent="pink"] .musplay-nav-item.is-active { box-shadow: inset 2px 0 0 rgba(249,168,212,.95), 0 5px 18px rgba(236,72,153,.1); }
+:root[data-accent="blue"] .musplay-nav-item.is-active { box-shadow: inset 2px 0 0 rgba(147,197,253,.95), 0 5px 18px rgba(59,130,246,.1); }
+:root[data-accent="cyan"] .musplay-nav-item.is-active { box-shadow: inset 2px 0 0 rgba(103,232,249,.95), 0 5px 18px rgba(6,182,212,.1); }
+:root[data-accent="green"] .musplay-nav-item.is-active { box-shadow: inset 2px 0 0 rgba(134,239,172,.95), 0 5px 18px rgba(34,197,94,.1); }
+
+
+/* Accent palette selected in Settings. */
+:root { --musplay-accent: #9333ea; --musplay-accent-bright: #a855f7; --musplay-accent-text: #d8b4fe; }
+:root[data-accent="pink"] { --musplay-accent: #db2777; --musplay-accent-bright: #ec4899; --musplay-accent-text: #f9a8d4; }
+:root[data-accent="blue"] { --musplay-accent: #2563eb; --musplay-accent-bright: #3b82f6; --musplay-accent-text: #bfdbfe; }
+:root[data-accent="cyan"] { --musplay-accent: #0891b2; --musplay-accent-bright: #06b6d4; --musplay-accent-text: #a5f3fc; }
+:root[data-accent="green"] { --musplay-accent: #16a34a; --musplay-accent-bright: #22c55e; --musplay-accent-text: #bbf7d0; }
+.musplay-app-shell .bg-purple-600,
+.musplay-app-shell .bg-purple-500,
+.musplay-app-shell .bg-pink-500 { background-color: var(--musplay-accent) !important; }
+.musplay-app-shell .hover\:bg-purple-500:hover,
+.musplay-app-shell .hover\:bg-purple-400:hover,
+.musplay-app-shell .hover\:bg-purple-700:hover { background-color: var(--musplay-accent-bright) !important; }
+.musplay-app-shell .text-purple-300,
+.musplay-app-shell .text-purple-400,
+.musplay-app-shell .text-pink-300 { color: var(--musplay-accent-text) !important; }
+.musplay-app-shell .border-purple-400,
+.musplay-app-shell .focus\:border-purple-400:focus { border-color: var(--musplay-accent-bright) !important; }
+.musplay-app-shell input[type="range"],
+.musplay-app-shell input[type="checkbox"] { accent-color: var(--musplay-accent-bright); }

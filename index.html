@@ -7,8 +7,68 @@
     <meta name="theme-color" content="#100b1b" />
     <meta name="description" content="MusPlay — твоя музыкальная библиотека и плеер для Windows." />
     <title>MusPlay</title>
+    <style>
+      html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #100b1b; }
+      #root { width: 100%; height: 100%; opacity: 0; visibility: hidden; transition: opacity 220ms ease; }
+      html.musplay-app-ready #root { opacity: 1; visibility: visible; }
+      #musplay-boot-screen { position: fixed; inset: 0; z-index: 99999; display: flex; flex-direction: column; overflow: hidden; color: #fff; background: radial-gradient(ellipse at 50% 46%, rgba(91,33,182,.24), transparent 42%), radial-gradient(ellipse at 15% 88%, rgba(157,23,77,.12), transparent 40%), linear-gradient(135deg,#10091c 0%,#0b0812 52%,#10091b 100%); opacity: 1; visibility: visible; transition: opacity 260ms ease, visibility 260ms ease; }
+      #musplay-boot-screen.is-exiting { opacity: 0; visibility: hidden; pointer-events: none; }
+      .musplay-boot-titlebar { height: 48px; flex: 0 0 48px; display: flex; align-items: center; justify-content: space-between; padding-left: 16px; border-bottom: 1px solid rgba(255,255,255,.055); background: rgba(15,5,24,.62); -webkit-app-region: drag; }
+      .musplay-boot-brand { display: flex; align-items: center; gap: 10px; font: 700 14px/1 'Segoe UI',sans-serif; letter-spacing: .02em; }
+      .musplay-boot-brand img { width: 28px; height: 28px; border-radius: 8px; object-fit: cover; }
+      .musplay-boot-window-actions { display: flex; height: 48px; -webkit-app-region: no-drag; }
+      .musplay-boot-window-actions button { width: 48px; border: 0; background: transparent; color: rgba(255,255,255,.58); font: 16px/1 'Segoe UI',sans-serif; cursor: pointer; }
+      .musplay-boot-window-actions button:hover { color: #fff; background: rgba(255,255,255,.08); }
+      .musplay-boot-window-actions button:last-child:hover { background: #dc2626; }
+      .musplay-boot-center { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center; transform: translateY(-18px); }
+      .musplay-boot-mark { position: relative; width: 112px; height: 112px; display: grid; place-items: center; margin-bottom: 25px; border-radius: 34px; background: linear-gradient(145deg,rgba(168,85,247,.16),rgba(219,39,119,.08)); border: 1px solid rgba(216,180,254,.17); box-shadow: 0 18px 70px rgba(109,40,217,.2), inset 0 1px 0 rgba(255,255,255,.08); }
+      .musplay-boot-mark img { width: 60px; height: 60px; object-fit: contain; filter: drop-shadow(0 0 20px rgba(168,85,247,.62)); animation: musplay-boot-breathe 2.8s ease-in-out infinite; }
+      .musplay-boot-orbit, .musplay-boot-orbit:after { position: absolute; inset: -13px; border: 1px solid rgba(196,181,253,.17); border-radius: 40px; animation: musplay-boot-orbit 2.8s ease-out infinite; content: ''; }
+      .musplay-boot-orbit:after { inset: -12px; animation-delay: 1.4s; }
+      .musplay-boot-name { font: 800 28px/1.2 'Segoe UI',sans-serif; letter-spacing: -.035em; }
+      .musplay-boot-kicker { margin-top: 8px; color: rgba(216,180,254,.5); font: 700 9px/1.4 'Segoe UI',sans-serif; letter-spacing: .28em; }
+      .musplay-boot-heading { margin: 34px 0 0; color: rgba(255,255,255,.9); font: 650 19px/1.35 'Segoe UI',sans-serif; }
+      .musplay-boot-copy { margin: 9px 0 0; color: rgba(255,255,255,.47); font: 13px/1.5 'Segoe UI',sans-serif; }
+      .musplay-boot-progress { position: relative; width: min(260px,70vw); height: 3px; margin-top: 26px; overflow: hidden; border-radius: 99px; background: rgba(255,255,255,.09); }
+      .musplay-boot-progress:after { position: absolute; inset: 0 auto 0 0; width: 34%; border-radius: inherit; background: linear-gradient(90deg,#a855f7,#ec4899); box-shadow: 0 0 18px rgba(216,70,239,.45); content: ''; animation: musplay-boot-progress 1.35s ease-in-out infinite; }
+      .musplay-boot-footer { padding: 0 0 22px; color: rgba(255,255,255,.24); text-align: center; font: 700 9px/1 'Segoe UI',sans-serif; letter-spacing: .22em; }
+      @keyframes musplay-boot-breathe { 0%,100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-3px) scale(1.035); } }
+      @keyframes musplay-boot-orbit { 0% { transform: scale(.92); opacity: .55; } 75%,100% { transform: scale(1.12); opacity: 0; } }
+      @keyframes musplay-boot-progress { 0% { transform: translateX(-110%); } 100% { transform: translateX(390%); } }
+      @media (prefers-reduced-motion: reduce) { #musplay-boot-screen *, #musplay-boot-screen *:before, #musplay-boot-screen *:after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; } }
+    </style>
   </head>
   <body>
+    <div id="musplay-boot-screen" role="status" aria-live="polite">
+      <div class="musplay-boot-titlebar">
+        <div class="musplay-boot-brand"><img src="./icon.png" alt=""/>MusPlay</div>
+        <div class="musplay-boot-window-actions"><button type="button" aria-label="Свернуть" onclick="window.electronAPI?.minimize?.()">−</button><button type="button" aria-label="Развернуть" onclick="window.electronAPI?.maximize?.()">□</button><button type="button" aria-label="Закрыть" onclick="window.electronAPI?.close?.()">×</button></div>
+      </div>
+      <div class="musplay-boot-center">
+        <div class="musplay-boot-mark"><span class="musplay-boot-orbit"></span><img src="./icon.png" alt=""/></div>
+        <div class="musplay-boot-name">MusPlay</div>
+        <div class="musplay-boot-kicker">YOUR MUSIC. YOUR SPACE.</div>
+        <h1 class="musplay-boot-heading">Подготавливаем вашу музыку</h1>
+        <p class="musplay-boot-copy">Восстанавливаем библиотеку, очередь и плейлисты</p>
+        <div class="musplay-boot-progress" aria-hidden="true"></div>
+      </div>
+      <div class="musplay-boot-footer">MUSPLAY DESKTOP</div>
+    </div>
+    <script>
+      (() => {
+        try {
+          const saved = localStorage.getItem('musplay-language');
+          const locale = String(saved || navigator.language || 'en').toLowerCase();
+          const english = { title: 'Getting your music ready', body: 'Restoring your library, queue and playlists' };
+          const russian = { title: 'Подготавливаем вашу музыку', body: 'Восстанавливаем библиотеку, очередь и плейлисты' };
+          const copy = locale === 'ru' || locale.startsWith('ru-') ? russian : english;
+          const title = document.querySelector('.musplay-boot-heading');
+          const body = document.querySelector('.musplay-boot-copy');
+          if (title) title.textContent = copy.title;
+          if (body) body.textContent = copy.body;
+        } catch { /* The static boot screen remains usable if storage is unavailable. */ }
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

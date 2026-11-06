@@ -1,6 +1,6 @@
 const {
   app, BrowserWindow, Menu, Tray, nativeImage, globalShortcut,
-  ipcMain, protocol, net, shell, dialog
+  ipcMain, protocol, net, shell, dialog, Notification
 } = require('electron');
 const path = require('path');
 const { pathToFileURL } = require('url');
@@ -101,6 +101,7 @@ function createWindow() {
     minWidth: 1000,
     minHeight: 700,
     backgroundColor: '#100b1b',
+    show: false,
     title: 'MusPlay',
     frame: false,
     webPreferences: {
@@ -113,6 +114,12 @@ function createWindow() {
 
   mainWindow = win;
   rendererReady = false;
+
+  // Keep the native window hidden until Chromium has painted index.html.
+  // The synchronous HTML boot screen is already visible before React mounts.
+  win.once('ready-to-show', () => {
+    if (!win.isDestroyed()) win.show();
+  });
 
 
   win.on('close', (event) => {
@@ -1003,6 +1010,40 @@ ipcMain.handle('audio:choose-folders', async () => {
 });
 ipcMain.handle('audio:scan-folders', async (_event, folders) => scanAudioFolders(folders));
 ipcMain.handle('audio:write-tags', async (_event, filePath, tags) => writeMp3Tags(String(filePath || ''), tags || {}));
+ipcMain.handle('audio:show-in-folder', async (_event, filePath) => { const target = String(filePath || ''); if (target && path.isAbsolute(target) && fsSync.existsSync(target)) shell.showItemInFolder(target); });
+
+ipcMain.handle('app:getStartupWithWindows', () => {
+  try { return app.getLoginItemSettings().openAtLogin; } catch { return false; }
+});
+ipcMain.handle('app:setStartupWithWindows', (_event, enabled) => {
+  const openAtLogin = Boolean(enabled);
+  try {
+    const settings = { openAtLogin };
+    if (process.platform === 'win32' && !app.isPackaged) {
+      settings.path = process.execPath;
+      settings.args = [path.resolve(process.argv[1] || '.')];
+    }
+    app.setLoginItemSettings(settings);
+    return Boolean(app.getLoginItemSettings().openAtLogin);
+  } catch (error) {
+    console.error('MusPlay: could not update Windows startup setting:', error);
+    return false;
+  }
+});
+ipcMain.handle('app:showTrackNotification', (_event, payload = {}) => {
+  if (!Notification.isSupported()) return false;
+  const title = String(payload.title || 'MusPlay').slice(0, 120);
+  const body = String(payload.body || '').slice(0, 180);
+  new Notification({ title, body, silent: true }).show();
+  return true;
+});
+ipcMain.handle('app:openDefaultAppsSettings', async () => {
+  try {
+    if (process.platform === 'win32') await shell.openExternal('ms-settings:defaultapps');
+    else await shell.openExternal('https://support.microsoft.com/windows');
+    return true;
+  } catch { return false; }
+});
 
 ipcMain.handle('app:getMinimizeToTray', () => minimizeToTrayEnabled);
 ipcMain.handle('app:setMinimizeToTray', async (_event, enabled) => {

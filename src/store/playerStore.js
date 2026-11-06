@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { readAudioMetadata, fallbackTitleFromFileName, DEFAULT_ARTIST, DEFAULT_ALBUM } from './audioMetadata';
 import localforage from 'localforage';
+import { DEFAULT_PREFERENCES, readPreferences, writePreferences } from './preferences';
 
 localforage.config({ name: 'MusPlayDB', storeName: 'data' });
 
@@ -14,8 +15,19 @@ function serializeTrack(track, { keepFileData = false } = {}) {
   };
 }
 
+function trackDuplicateKey(track) {
+  const path = String(track?.sourcePath || '').replace(/\\/g, '/').toLocaleLowerCase();
+  if (path) return `path:${path}`;
+  const name = String(track?.fileName || '').trim().toLocaleLowerCase();
+  const size = Number(track?.fileSize) || 0;
+  const modified = Number(track?.lastModified) || 0;
+  if (name && size) return `file:${name}|${size}|${modified}`;
+  return '';
+}
+
 let activeOnlineSearchController = null;
 let activeFreeMusicSearchController = null;
+let initializationRunId = 0;
 
 const usePlayerStore = create((set, get) => ({
   currentTrack: null,
@@ -32,11 +44,35 @@ const usePlayerStore = create((set, get) => ({
   favorites: [],
   history: [],
   isInitialized: false,
+  preferences: { ...DEFAULT_PREFERENCES },
+  setPreference: (key, value) => set(state => {
+    const preferences = writePreferences({ ...state.preferences, [key]: value });
+    return { preferences };
+  }),
+  setPreferences: (values) => set(state => ({ preferences: writePreferences({ ...state.preferences, ...(values || {}) }) })),
+  clearArtworkCache: async () => {
+    const state = get();
+    const clear = track => track ? { ...track, cover: track.customCover || null } : track;
+    const library = state.library.map(clear);
+    const queue = state.queue.map(clear);
+    const favorites = state.favorites.map(clear);
+    const history = state.history.map(clear);
+    const playlists = state.playlists.map(playlist => ({ ...playlist, tracks: (playlist.tracks || []).map(clear) }));
+    const currentTrack = clear(state.currentTrack);
+    await Promise.all([
+      localforage.setItem('library', library.map(track => serializeTrack(track, { keepFileData: true }))),
+      localforage.setItem('queue', queue.map(track => serializeTrack(track, { keepFileData: true }))),
+      localforage.setItem('favorites', favorites.map(track => serializeTrack(track))),
+      localforage.setItem('history', history.map(track => serializeTrack(track))),
+      localforage.setItem('playlists', playlists.map(playlist => ({ ...playlist, tracks: playlist.tracks.map(track => serializeTrack(track)) }))),
+    ]);
+    set({ library, queue, favorites, history, playlists, currentTrack });
+  },
 
   playTrack: (track) => {
     if (!track) return;
     set((state) => {
-      const history = [track, ...state.history.filter(item => item.id !== track.id)].slice(0, 100);
+      const history = [{ ...track, playedAt: Date.now() }, ...state.history.filter(item => item.id !== track.id)].slice(0, 100);
       const queue = state.queue.some(item => item.id === track.id)
         ? state.queue
         : [track, ...state.queue];
@@ -52,12 +88,17 @@ const usePlayerStore = create((set, get) => ({
       const queue = state.queue.some(item => item.id === track.id)
         ? state.queue
         : [...state.queue, track];
-      const history = [track, ...state.history.filter(item => item.id !== track.id)].slice(0, 100);
+      const history = [{ ...track, playedAt: Date.now() }, ...state.history.filter(item => item.id !== track.id)].slice(0, 100);
       localforage.setItem('queue', queue.map(item => serializeTrack(item, { keepFileData: true })));
       localforage.setItem('history', history.map(item => serializeTrack(item)));
       return { queue, currentTrack: track, isPlaying: true, currentTime: 0, history };
     });
   },
+  clearHistory: async () => {
+    await localforage.setItem('history', []);
+    set({ history: [] });
+  },
+
   toggleFavorite: (track) => {
     if (!track) return;
     set((state) => {
@@ -234,6 +275,7 @@ const usePlayerStore = create((set, get) => ({
           year: metadata.year || '',
           genre: metadata.genre || '',
           duration: metadata.duration || 0,
+          bitrate: metadata.bitrate || 0, sampleRate: metadata.sampleRate || 0, codec: metadata.codec || '', container: metadata.container || '',
           url: info.url,
           sourcePath: info.path,
           cover: metadata.cover,
@@ -249,28 +291,35 @@ const usePlayerStore = create((set, get) => ({
     }
 
     if (!newTracks.length) throw new Error('MusPlay не смог прочитать выбранные аудиофайлы.');
+    let addedCount = 0;
     set((state) => {
-      const normalizePath = value => String(value || '').replace(/\\/g, '/').toLowerCase();
-      const existingTracks = [...state.library, ...state.queue];
-      const existingByPath = new Map(existingTracks
-        .filter(track => track.sourcePath)
-        .map(track => [normalizePath(track.sourcePath), track]));
-      const tracksToPlay = newTracks.map(track => existingByPath.get(normalizePath(track.sourcePath)) || track);
-      const queuePaths = new Set(state.queue.map(track => normalizePath(track.sourcePath)).filter(Boolean));
-      const updatedQueue = [...state.queue, ...newTracks.filter(track => !queuePaths.has(normalizePath(track.sourcePath)))];
-      const libraryPaths = new Set(state.library.map(track => normalizePath(track.sourcePath)).filter(Boolean));
-      const library = [...state.library, ...newTracks.filter(track => !libraryPaths.has(normalizePath(track.sourcePath)))];
-      localforage.setItem('queue', updatedQueue.map(track => serializeTrack(track, { keepFileData: true })));
+      const existingByKey = new Map([...state.library, ...state.queue].map(track => [trackDuplicateKey(track), track]).filter(([key]) => key));
+      const queueKeys = new Set(state.queue.map(trackDuplicateKey).filter(Boolean));
+      const queueAdditions = [];
+      const libraryAdditions = [];
+      for (const incoming of newTracks) {
+        const key = trackDuplicateKey(incoming);
+        const existing = key ? existingByKey.get(key) : null;
+        if (existing) {
+          if (!queueKeys.has(key)) {
+            queueAdditions.push(existing);
+            queueKeys.add(key);
+          }
+          continue;
+        }
+        queueAdditions.push(incoming);
+        libraryAdditions.push(incoming);
+        if (key) { existingByKey.set(key, incoming); queueKeys.add(key); }
+      }
+      if (!queueAdditions.length) return state;
+      addedCount = queueAdditions.length;
+      const queue = [...state.queue, ...queueAdditions];
+      const library = [...state.library, ...libraryAdditions];
+      localforage.setItem('queue', queue.map(track => serializeTrack(track, { keepFileData: true })));
       localforage.setItem('library', library.map(track => serializeTrack(track, { keepFileData: true })));
-      return {
-        queue: updatedQueue,
-        library,
-        currentTrack: tracksToPlay[0],
-        isPlaying: true,
-        currentTime: 0
-      };
+      return { queue, library, currentTrack: state.currentTrack || queueAdditions[0], isPlaying: state.isPlaying || !state.currentTrack, currentTime: state.currentTrack ? state.currentTime : 0 };
     });
-    return newTracks.length;
+    return addedCount;
   },
 
   loadLocalFiles: async (files) => {
@@ -298,6 +347,7 @@ const usePlayerStore = create((set, get) => ({
         year: metadata.year || '',
         genre: metadata.genre || '',
         duration: metadata.duration || 0,
+        bitrate: metadata.bitrate || 0, sampleRate: metadata.sampleRate || 0, codec: metadata.codec || '', container: metadata.container || '',
         url: resolvedPath?.url || URL.createObjectURL(file),
         sourcePath: resolvedPath?.path || '',
         cover: metadata.cover,
@@ -311,17 +361,28 @@ const usePlayerStore = create((set, get) => ({
     }
 
     set((state) => {
-      const updatedQueue = [...state.queue, ...newTracks];
-      const knownIds = new Set(state.library.map(track => track.id));
-      const library = [...state.library, ...newTracks.filter(track => !knownIds.has(track.id))];
+      const existingByKey = new Map([...state.library, ...state.queue].map(track => [trackDuplicateKey(track), track]).filter(([key]) => key));
+      const queueKeys = new Set(state.queue.map(trackDuplicateKey).filter(Boolean));
+      const queueAdditions = [];
+      const libraryAdditions = [];
+      for (const incoming of newTracks) {
+        const key = trackDuplicateKey(incoming);
+        const existing = key ? existingByKey.get(key) : null;
+        if (existing) {
+          if (!queueKeys.has(key)) { queueAdditions.push(existing); queueKeys.add(key); }
+          continue;
+        }
+        queueAdditions.push(incoming);
+        libraryAdditions.push(incoming);
+        if (key) { existingByKey.set(key, incoming); queueKeys.add(key); }
+      }
+      if (!queueAdditions.length) return state;
+      const updatedQueue = [...state.queue, ...queueAdditions];
+      const library = [...state.library, ...libraryAdditions];
       // Keep fileData in IndexedDB so metadata and playback URLs can be rebuilt after restart.
       localforage.setItem('queue', updatedQueue.map(track => serializeTrack(track, { keepFileData: true })));
       localforage.setItem('library', library.map(track => serializeTrack(track, { keepFileData: true })));
-      return {
-        queue: updatedQueue,
-        library,
-        currentTrack: state.currentTrack || newTracks[0] || null
-      };
+      return { queue: updatedQueue, library, currentTrack: state.currentTrack || queueAdditions[0] || null };
     });
   },
 
@@ -352,8 +413,15 @@ const usePlayerStore = create((set, get) => ({
     const skippedLarge = Number(scanResult?.skippedLarge) || 0;
     if (!files.length) return { added: 0, found: 0, truncated, skippedLarge };
     const normalize = value => String(value || '').replace(/\\/g, '/').toLowerCase();
-    const existingPaths = new Set(get().library.map(track => normalize(track.sourcePath)).filter(Boolean));
-    const candidates = files.filter(file => !existingPaths.has(normalize(file.path)));
+    const existingPaths = new Set([...get().library, ...get().queue].map(track => normalize(track.sourcePath)).filter(Boolean));
+    const excludedRoots = (get().preferences?.excludedFolders || []).map(normalize).filter(Boolean).map(root => root.endsWith('/') ? root : `${root}/`);
+    const candidates = files.filter(file => {
+      const candidatePath = normalize(file.path);
+      const excluded = excludedRoots.some(root => candidatePath === root.slice(0, -1) || candidatePath.startsWith(root));
+      if (excluded || !candidatePath || existingPaths.has(candidatePath)) return false;
+      existingPaths.add(candidatePath);
+      return true;
+    });
     const newTracks = [];
     for (let start = 0; start < candidates.length; start += 2) {
       const batch = candidates.slice(start, start + 2);
@@ -399,108 +467,203 @@ const usePlayerStore = create((set, get) => ({
   },
 
   initialize: async () => {
-    const savedVolume = localStorage.getItem('music-player-volume');
-    if (savedVolume) set({ volume: parseFloat(savedVolume) });
+    const runId = ++initializationRunId;
+    const isCurrentRun = () => runId === initializationRunId;
+    const preferences = readPreferences();
+    set({ preferences });
 
-    const savedLibrary = (await localforage.getItem('library')) || [];
-    const savedQueue = (await localforage.getItem('queue')) || [];
-    const libraryIds = new Set(savedLibrary.map(track => track.id));
+    const savedVolume = Number(localStorage.getItem('music-player-volume'));
+    if (Number.isFinite(savedVolume)) set({ volume: Math.max(0, Math.min(1, savedVolume)) });
+
+    // Read the persisted collections together. Startup must not parse every audio
+    // file again: the metadata was already stored when the track entered the library.
+    const [libraryValue, queueValue, favoritesValue, historyValue, playlistsValue] = await Promise.all([
+      localforage.getItem('library'),
+      localforage.getItem('queue'),
+      localforage.getItem('favorites'),
+      localforage.getItem('history'),
+      localforage.getItem('playlists')
+    ]);
+    if (!isCurrentRun()) return;
+
+    const savedLibrary = Array.isArray(libraryValue) ? libraryValue : [];
+    const savedQueue = Array.isArray(queueValue) ? queueValue : [];
+    const savedFavorites = Array.isArray(favoritesValue) ? favoritesValue : [];
+    const savedHistory = Array.isArray(historyValue) ? historyValue : [];
+    const savedPlaylists = Array.isArray(playlistsValue) ? playlistsValue : [];
+    const libraryIds = new Set(savedLibrary.map(track => track?.id).filter(Boolean));
     const allSavedTracks = [
       ...savedLibrary,
-      ...savedQueue.filter(track => !libraryIds.has(track.id))
+      ...savedQueue.filter(track => track && !libraryIds.has(track.id))
     ];
-    const externalPaths = [...new Set(allSavedTracks.map(track => track.sourcePath).filter(Boolean))];
-    const externalUrlByPath = new Map();
-    if (externalPaths.length && window.electronAPI?.resolveAudioPaths) {
-      try {
-        const resolved = await window.electronAPI.resolveAudioPaths(externalPaths);
-        resolved.forEach(item => externalUrlByPath.set(item.path, item.url));
-      } catch (error) {
-        console.warn('MusPlay: не удалось восстановить пути к локальным аудиофайлам', error);
-      }
-    }
 
-    // Important: re-read metadata of tracks from older app versions. Otherwise
-    // stale filename-based titles remain in IndexedDB even after upgrading code.
-    const restoredTracks = [];
-    // Limit concurrent metadata reads to keep memory usage reasonable for large queues.
-    for (let start = 0; start < allSavedTracks.length; start += 4) {
-      const batch = allSavedTracks.slice(start, start + 4);
-      const restoredBatch = await Promise.all(batch.map(async (track) => {
-      const fileData = track.fileData || null;
-      const fileName = track.fileName || fileData?.name || track.title || '';
-      let refreshed = {};
-      if (fileData && track.isLocal !== false) {
-        try {
-          refreshed = await readAudioMetadata(fileData, fileName);
-        } catch (error) {
-          console.warn(`MusPlay: обновление метаданных не удалось для «${fileName}»`, error);
+    const isBlobLike = value => value && typeof value === 'object'
+      && typeof value.size === 'number' && typeof value.slice === 'function';
+    const restoreTrackFast = track => {
+      const fileData = isBlobLike(track?.fileData) ? track.fileData : null;
+      const fileName = track?.fileName || fileData?.name || track?.title || '';
+      let url = null;
+      if (fileData) {
+        try { url = URL.createObjectURL(fileData); } catch (error) {
+          console.warn('MusPlay: не удалось восстановить локальный аудиофайл:', error);
         }
+      } else if (typeof track?.url === 'string' && /^https?:\/\//i.test(track.url)) {
+        url = track.url;
       }
-      const filenameTitle = fallbackTitleFromFileName(fileName);
-      const oldTitleLooksLikeFilename = !track.title || track.title === filenameTitle;
-      return {
-        ...track,
-        ...((refreshed.title && oldTitleLooksLikeFilename) ? { title: refreshed.title } : {}),
-        ...(refreshed.artist && (!track.artist || track.artist === DEFAULT_ARTIST || track.artist === 'Unknown Artist') ? { artist: refreshed.artist } : {}),
-        ...(refreshed.album && (!track.album || track.album === DEFAULT_ALBUM) ? { album: refreshed.album } : {}),
-        ...(refreshed.year && !track.year ? { year: refreshed.year } : {}),
-        ...(refreshed.genre && !track.genre ? { genre: refreshed.genre } : {}),
-        ...(refreshed.duration > 0 && !(track.duration > 0) ? { duration: refreshed.duration } : {}),
-        ...(refreshed.cover && !track.cover ? { cover: refreshed.cover } : {}),
-        fileName,
-        url: fileData ? URL.createObjectURL(fileData) : (externalUrlByPath.get(track.sourcePath) || track.url || null)
-      };
-      }));
-      restoredTracks.push(...restoredBatch);
-    }
+      return { ...track, fileName, url };
+    };
 
-    const byId = new Map(restoredTracks.map(track => [track.id, track]));
+    const restoredTracks = allSavedTracks.map(restoreTrackFast);
+    const byId = new Map(restoredTracks.map(track => [track.id, track]).filter(([id]) => id));
     const restoredLibrary = savedLibrary.length
-      ? restoredTracks.filter(track => libraryIds.has(track.id))
+      ? savedLibrary.map(track => byId.get(track.id) || restoreTrackFast(track))
       : restoredTracks.filter(track => track.isLocal);
-    const restoredQueue = savedQueue.map(track => byId.get(track.id) || {
-      ...track,
-      url: track.fileData ? URL.createObjectURL(track.fileData) : (externalUrlByPath.get(track.sourcePath) || track.url || null)
-    }).filter(track => track.url);
+    // Keep unavailable queue entries too. Their file paths are resolved in the
+    // background; dropping them here would silently alter a user's saved queue.
+    const restoredQueue = savedQueue.map(track => byId.get(track.id) || restoreTrackFast(track));
+
+    const savedCurrentTrackId = localStorage.getItem('musplay-last-track-id');
+    const restoredCurrentTrack = restoredQueue.find(track => track.id === savedCurrentTrackId)
+      || restoredLibrary.find(track => track.id === savedCurrentTrackId)
+      || restoredQueue.find(track => track.url)
+      || restoredQueue[0]
+      || null;
+    const savedPosition = preferences.rememberPosition
+      ? Math.max(0, Number(localStorage.getItem('musplay-last-position')) || 0)
+      : 0;
+
+    const mergeSavedTrack = track => ({ ...track, ...(byId.get(track.id) || {}) });
+    const restoredFavorites = savedFavorites.map(mergeSavedTrack);
+    const restoredHistory = savedHistory.map(mergeSavedTrack);
+    const restoredPlaylists = savedPlaylists.map(playlist => ({
+      ...playlist,
+      tracks: (Array.isArray(playlist.tracks) ? playlist.tracks : []).map(mergeSavedTrack)
+    }));
 
     set({
       library: restoredLibrary,
       queue: restoredQueue,
-      currentTrack: restoredQueue[0] || null
+      currentTrack: restoredCurrentTrack,
+      currentTime: savedPosition,
+      duration: Number(restoredCurrentTrack?.duration) || 0,
+      isPlaying: Boolean(preferences.autoResumeLastTrack && restoredCurrentTrack?.url),
+      favorites: restoredFavorites,
+      history: restoredHistory,
+      playlists: restoredPlaylists,
+      isInitialized: true
     });
 
-    // Persist refreshed tags so the next startup does not have to rediscover them.
-    await localforage.setItem('library', restoredLibrary.map(track => serializeTrack(track, { keepFileData: true })));
-    await localforage.setItem('queue', restoredQueue.map(track => serializeTrack(track, { keepFileData: true })));
+    // The UI can now open. Disk-path recovery and migration of old metadata happen
+    // below, without keeping the startup screen visible or blocking interaction.
+    const backgroundTasks = async () => {
+      await new Promise(resolve => setTimeout(resolve, 250));
+      if (!isCurrentRun()) return;
 
-    const savedFavorites = (await localforage.getItem('favorites')) || [];
-    const savedHistory = (await localforage.getItem('history')) || [];
-    set({
-      favorites: savedFavorites.map(track => ({ ...track, ...(byId.get(track.id) || {}) })),
-      history: savedHistory.map(track => ({ ...track, ...(byId.get(track.id) || {}) }))
-    });
-
-    const savedPlaylists = (await localforage.getItem('playlists')) || [];
-    const restoredPlaylists = savedPlaylists.map(playlist => ({
-      ...playlist,
-      tracks: (playlist.tracks || []).map(track => ({ ...track, ...(byId.get(track.id) || {}) }))
-    }));
-    set({ playlists: restoredPlaylists });
-    await localforage.setItem('playlists', restoredPlaylists.map(playlist => ({
-      ...playlist, tracks: playlist.tracks.map(track => serializeTrack(track))
-    }))); 
-
-    set({ isInitialized: true });
-    try {
-      const savedFolders = JSON.parse(localStorage.getItem('musplay-library-folders') || '[]');
-      if (Array.isArray(savedFolders) && savedFolders.length) {
-        // Scan after the saved library is restored so startup never blocks the UI.
-        get().scanMusicFolders(savedFolders).catch(error => console.warn('MusPlay: automatic library scan failed', error));
+      const normalizePath = value => String(value || '').replace(/\\/g, '/').toLowerCase();
+      const externalPaths = [...new Set(allSavedTracks.map(track => track?.sourcePath).filter(Boolean))];
+      const externalUrlByPath = new Map();
+      if (externalPaths.length && window.electronAPI?.resolveAudioPaths) {
+        try {
+          for (let index = 0; index < externalPaths.length; index += 100) {
+            if (!isCurrentRun()) return;
+            const resolved = await window.electronAPI.resolveAudioPaths(externalPaths.slice(index, index + 100));
+            for (const item of (Array.isArray(resolved) ? resolved : [])) {
+              if (item?.path && item?.url) externalUrlByPath.set(normalizePath(item.path), item.url);
+            }
+          }
+        } catch (error) {
+          console.warn('MusPlay: восстановление путей к аудиофайлам не удалось:', error);
+        }
       }
-    } catch (error) {
-      console.warn('MusPlay: saved music folders could not be read', error);
-    }
+
+      if (!isCurrentRun()) return;
+      if (externalUrlByPath.size) {
+        const attachUrl = track => {
+          const resolvedUrl = externalUrlByPath.get(normalizePath(track?.sourcePath));
+          return resolvedUrl ? { ...track, url: resolvedUrl } : track;
+        };
+        const state = get();
+        const library = state.library.map(attachUrl);
+        const queue = state.queue.map(attachUrl);
+        const currentTrack = state.currentTrack ? attachUrl(state.currentTrack) : null;
+        const favorites = state.favorites.map(attachUrl);
+        const history = state.history.map(attachUrl);
+        const playlists = state.playlists.map(playlist => ({ ...playlist, tracks: playlist.tracks.map(attachUrl) }));
+        const shouldResume = Boolean(preferences.autoResumeLastTrack && currentTrack?.url && !state.isPlaying);
+        set({ library, queue, currentTrack, favorites, history, playlists, ...(shouldResume ? { isPlaying: true } : {}) });
+      }
+
+      // Only re-read metadata for older/incomplete records. Healthy tracks are
+      // never re-parsed on every launch, and cover art is excluded from this pass.
+      const metadataCandidates = get().library.filter(track => {
+        if (!isBlobLike(track.fileData) || track.isLocal === false) return false;
+        const fileTitle = fallbackTitleFromFileName(track.fileName || track.title || '');
+        const titleNeedsRefresh = !track.title || track.title === fileTitle;
+        const artistNeedsRefresh = !track.artist || track.artist === DEFAULT_ARTIST || track.artist === 'Unknown Artist';
+        const albumNeedsRefresh = !track.album || track.album === DEFAULT_ALBUM;
+        const durationNeedsRefresh = !(Number(track.duration) > 0);
+        return titleNeedsRefresh || artistNeedsRefresh || albumNeedsRefresh || durationNeedsRefresh;
+      });
+      const refreshedById = new Map();
+      for (let index = 0; index < metadataCandidates.length; index += 2) {
+        if (!isCurrentRun()) return;
+        const batch = metadataCandidates.slice(index, index + 2);
+        const results = await Promise.all(batch.map(async track => {
+          try {
+            const metadata = await readAudioMetadata(track.fileData, track.fileName, { includeCover: false });
+            const filenameTitle = fallbackTitleFromFileName(track.fileName || track.title || '');
+            return {
+              ...track,
+              ...(metadata.title && (!track.title || track.title === filenameTitle) ? { title: metadata.title } : {}),
+              ...(metadata.artist && (!track.artist || track.artist === DEFAULT_ARTIST || track.artist === 'Unknown Artist') ? { artist: metadata.artist } : {}),
+              ...(metadata.album && (!track.album || track.album === DEFAULT_ALBUM) ? { album: metadata.album } : {}),
+              ...(metadata.year && !track.year ? { year: metadata.year } : {}),
+              ...(metadata.genre && !track.genre ? { genre: metadata.genre } : {}),
+              ...(metadata.duration > 0 && !(Number(track.duration) > 0) ? { duration: metadata.duration } : {})
+            };
+          } catch (error) {
+            console.warn(`MusPlay: фоновое обновление метаданных не удалось для «${track.fileName || track.title}»`, error);
+            return track;
+          }
+        }));
+        for (const track of results) if (track?.id) refreshedById.set(track.id, track);
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+
+      if (!isCurrentRun()) return;
+      if (refreshedById.size) {
+        const mergeRefresh = track => refreshedById.get(track.id) || track;
+        const state = get();
+        const library = state.library.map(mergeRefresh);
+        const queue = state.queue.map(mergeRefresh);
+        const currentTrack = state.currentTrack ? mergeRefresh(state.currentTrack) : null;
+        const favorites = state.favorites.map(mergeRefresh);
+        const history = state.history.map(mergeRefresh);
+        const playlists = state.playlists.map(playlist => ({ ...playlist, tracks: playlist.tracks.map(mergeRefresh) }));
+        set({ library, queue, currentTrack, favorites, history, playlists });
+        try {
+          await Promise.all([
+            localforage.setItem('library', library.map(track => serializeTrack(track, { keepFileData: true }))),
+            localforage.setItem('queue', queue.map(track => serializeTrack(track, { keepFileData: true }))),
+            localforage.setItem('favorites', favorites.map(track => serializeTrack(track))),
+            localforage.setItem('history', history.map(track => serializeTrack(track))),
+            localforage.setItem('playlists', playlists.map(playlist => ({ ...playlist, tracks: playlist.tracks.map(track => serializeTrack(track)) })))
+          ]);
+        } catch (error) {
+          console.warn('MusPlay: не удалось сохранить обновлённые метаданные:', error);
+        }
+      }
+
+      let savedFolders = [];
+      try { savedFolders = JSON.parse(localStorage.getItem('musplay-library-folders') || '[]'); }
+      catch (error) { console.warn('MusPlay: сохранённые папки библиотеки повреждены:', error); }
+      if (preferences.autoScanAtStartup && Array.isArray(savedFolders) && savedFolders.length && isCurrentRun()) {
+        try { await get().scanMusicFolders(savedFolders); }
+        catch (error) { console.warn('MusPlay: фоновое сканирование библиотеки не удалось:', error); }
+      }
+    };
+
+    backgroundTasks().catch(error => console.warn('MusPlay: фоновая инициализация завершилась с ошибкой:', error));
   }
 }));
 

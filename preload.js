@@ -19,6 +19,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   maximize: () => ipcRenderer.send('maximize'),
   close: () => ipcRenderer.send('close'),
   getMinimizeToTray: () => ipcRenderer.invoke('app:getMinimizeToTray'),
+  getStartupWithWindows: () => ipcRenderer.invoke('app:getStartupWithWindows'),
+  setStartupWithWindows: (enabled) => ipcRenderer.invoke('app:setStartupWithWindows', Boolean(enabled)),
+  showTrackNotification: (payload) => ipcRenderer.invoke('app:showTrackNotification', payload),
+  openDefaultAppsSettings: () => ipcRenderer.invoke('app:openDefaultAppsSettings'),
   setMinimizeToTray: (enabled) => ipcRenderer.invoke('app:setMinimizeToTray', Boolean(enabled)),
   setTrayLanguage: (language) => ipcRenderer.invoke('app:setTrayLanguage', language),
   getMediaShortcutStatus: () => ipcRenderer.invoke('app:getMediaShortcutStatus'),
@@ -32,6 +36,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return { files: Array.isArray(result?.files) ? result.files : [], truncated: Boolean(result?.truncated), skippedLarge: Number(result?.skippedLarge) || 0 };
   },
   writeAudioTags: (filePath, tags) => ipcRenderer.invoke('audio:write-tags', filePath, tags),
+  showAudioInFolder: (filePath) => ipcRenderer.invoke('audio:show-in-folder', filePath),
   sendMediaSessionAction: (action) => {
     const allowed = new Set(['play', 'pause', 'previous', 'next', 'stop']);
     if (allowed.has(action)) ipcRenderer.send('media:session-action', action);

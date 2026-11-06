@@ -163,7 +163,7 @@ export default function BottomPlayer({ showLyrics = false, onToggleLyrics = () =
   if (!currentTrack) {
     return <>
       {audioElements}
-      <div className="fixed bottom-0 left-0 right-0 h-20 bg-[#0f0518]/90 backdrop-blur-xl border-t border-white/10 px-6 flex items-center justify-center gap-4 z-50">
+      <div className={`musplay-bottom-player fixed bottom-0 left-0 right-0 h-20 bg-[#0f0518]/90 backdrop-blur-xl border-t border-white/10 px-6 flex items-center justify-center gap-4 z-50 ${showLyrics ? 'is-hidden' : ''}`} aria-hidden={showLyrics}>
         <p className="text-gray-400 text-sm">{t('queueEmptyPrompt', language)}</p>
         <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg transition text-sm"><Upload size={16}/>{t('uploadMusic', language)}</button>
         <input ref={fileInputRef} type="file" accept="audio/*" multiple onChange={handleFileUpload} className="hidden"/>
@@ -173,7 +173,7 @@ export default function BottomPlayer({ showLyrics = false, onToggleLyrics = () =
 
   return <>
     {audioElements}
-    <div className="fixed bottom-0 left-0 right-0 h-20 bg-[#0f0518]/90 backdrop-blur-xl border-t border-white/10 px-4 md:px-6 flex items-center justify-between gap-3 z-50">
+    <div className={`musplay-bottom-player fixed bottom-0 left-0 right-0 h-20 bg-[#0f0518]/90 backdrop-blur-xl border-t border-white/10 px-4 md:px-6 flex items-center justify-between gap-3 z-50 ${showLyrics ? 'is-hidden' : ''}`} aria-hidden={showLyrics}>
       <input ref={fileInputRef} type="file" accept="audio/*" multiple onChange={handleFileUpload} className="hidden"/>
 
       <div className="flex items-center gap-3 w-[30%] min-w-0">

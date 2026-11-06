@@ -173,6 +173,10 @@ function metadataText(metadata) {
     year: cleanText(common.year) || getNativeText(metadata, ['TDRC', 'TYER', 'DATE']),
     genre: cleanText(common.genre) || getNativeText(metadata, ['TCON', '©GEN', 'GENRE']),
     duration: Number.isFinite(metadata?.format?.duration) ? metadata.format.duration : 0,
+    bitrate: Number.isFinite(metadata?.format?.bitrate) ? metadata.format.bitrate : 0,
+    sampleRate: Number.isFinite(metadata?.format?.sampleRate) ? metadata.format.sampleRate : 0,
+    codec: cleanText(metadata?.format?.codec),
+    container: cleanText(metadata?.format?.container),
     picture: Array.isArray(common.picture) ? common.picture[0] : null
   };
 }
@@ -209,6 +213,10 @@ export async function readAudioMetadata(file, fileName = file?.name || '', { inc
     year: fromLibrary.year || '',
     genre: fromLibrary.genre || '',
     duration: fromLibrary.duration || 0,
+    bitrate: fromLibrary.bitrate || 0,
+    sampleRate: fromLibrary.sampleRate || 0,
+    codec: fromLibrary.codec || '',
+    container: fromLibrary.container || '',
     cover: null
   };
 
